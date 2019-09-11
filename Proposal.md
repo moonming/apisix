@@ -130,6 +130,7 @@ Most of dependencies have Apache compatible licenses，and the detail as follows
 | lua-resty-jit-uuid                   | MIT             |    |
 | lua-tinyyaml                         | MIT             |    |
 | lua-rapidjson                        | MIT             |    |
+| luafilesystem                        | MIT             |    |
 
 The dependencies of front-end dashboard are as follows:
 
