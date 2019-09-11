@@ -132,6 +132,7 @@ Most of dependencies have Apache compatible licenses，and the detail as follows
 | lua-rapidjson                        | MIT             |    |
 
 The dependencies of front-end dashboard are as follows:
+
 | *Dependency*                         | *License*       | *Comments* |
 | ------------------------------------ | --------------- | ------- |
 | element                              | MIT    |    |
