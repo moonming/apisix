@@ -168,11 +168,13 @@ Travis CI
 - Yuansheng Wang([membphis@gmail.com](mailto:membphis@gmail.com))
 - Zhiyuan Ju([jjzhiyuan@gmail.com](mailto:jjzhiyuan@gmail.com))
 - Junxu Chen([4061470@qq.com](mailto:4061470@qq.com))
+- Yong Li([chnliyong@hotmail.com](mailto: chnliyong@hotmail.com))
 
 ## Affiliations
 
 - zhiliu: Ming Wen, Yuansheng Wang
 - Meizu: Junxu Chen
+- Souche: Yong Li
 - Individuals: Zhiyuan Ju
 
 ## Sponsors
