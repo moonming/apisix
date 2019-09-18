@@ -38,7 +38,7 @@ APISIX was created in April 2019 and opened on github on June 6, 2019. The proje
 
 ### Community
 
-APISIX has been building an active community since its open source, and hosted meetup in 5 different cities in China. Currently, the community includes over 16 contributors, and we already have a user group of more than 500 people.
+APISIX has been building an active community since its open source, and hosted meetup in 5 different cities in China. Currently, the community includes over 20 contributors, and we already have a user group of more than 500 people.
 
 APISIX's contributors, who can provide employer information, are from iresty.com, meizu.com, weibo.com, ke.com, fansup.mobi, which also provide many important feedbacks from their actual scenarios.
 
@@ -59,7 +59,7 @@ The core developers, including experienced open source developers and team leade
 
 The contributors and community cooperation brings the project from a small concept into a real microservices API gateway, and APISIX is widely adopted in China by [some companies and organizations](https://github.com/iresty/apisix/issues/487). The core developers of APISIX team already work full time on this project. There is very little risk of APISIX getting orphaned as at least one large company (ke.com) is widely using it in their production.
 
-APISIX has four major releases, 16 contributors, been forked nearly 130 times, and received 347 pull requests from contributors, which further demonstrates APISIX as a very active project. We also plan to extend and diversify this community further through Apache.
+APISIX has four major releases, 20 contributors, been forked nearly 130 times, and received 347 pull requests from contributors, which further demonstrates APISIX as a very active project. We also plan to extend and diversify this community further through Apache.
 
 Thus, it is very unlikely that APISIX becomes orphaned.
 
@@ -168,7 +168,7 @@ Travis CI
 - Yuansheng Wang([membphis@gmail.com](mailto:membphis@gmail.com))
 - Zhiyuan Ju([jjzhiyuan@gmail.com](mailto:jjzhiyuan@gmail.com))
 - Junxu Chen([4061470@qq.com](mailto:4061470@qq.com))
-- Yong Li([chnliyong@hotmail.com](mailto: chnliyong@hotmail.com))
+- Yong Li([chnliyong@hotmail.com](mailto:chnliyong@hotmail.com))
 
 ## Affiliations
 
