@@ -65,7 +65,7 @@ Thus, it is very unlikely that APISIX becomes orphaned.
 
 ### Inexperience with Open Source
 
-The members of PMC are the founders of the OpenResty community, and already have experience working with open source communities, they are also active in [OpenResty](https://github.com/openresty/), [Kong](https://github.com/openresty/lua-nginx-module), [ingress-nginx](https://github.com/kubernetes/ingress-nginx) and other projects. At the same time, we will learn more open source experiences by following the Apache way in our incubator journey.
+The members of PMC are the founders of the OpenResty community, and already have experience working with open source communities, they are also active in [OpenResty](https://github.com/openresty/), [Kong](https://github.com/kong/kong), [ingress-nginx](https://github.com/kubernetes/ingress-nginx) and other projects. At the same time, we will learn more open source experiences by following the Apache way in our incubator journey.
 
 Therefore, we believe we have enough experience to deal with open source.
 
@@ -109,15 +109,15 @@ As soon as APISIX is approved to join Apache Incubator, zhiliu will provide the 
 
 As all backend code dependencies are managed using [Luarocks](https://github.com/iresty/apisix/blob/master/rockspec/apisix-dev-1.0-0.rockspec), none of the external libraries need to be packaged in a source distribution.
 
-Most of dependencies have Apache compatible licenses，and the detail as follows:
+All of dependencies have Apache compatible licenses，and the detail as follows:
 
 | *Dependency*                         | *License*       | *Comments* |
 | ------------------------------------ | --------------- | ------- |
-| openresty                            | BSD 2-clause    |    |
-| lua-resty-template                   | BSD 3-clause    |    |
-| lua-resty-cookie                     | BSD 3-clause    |    |
 | lua-resty-session                    | BSD 2-clause    |    |
 | lua-resty-http                       | BSD 2-clause    |    |
+| lua-resty-balancer                   | BSD 2-clause    |    |
+| lua-resty-template                   | BSD 3-clause    |    |
+| lua-resty-cookie                     | BSD 3-clause    |    |
 | lua-resty-etcd                       | Apache-2.0      |    |
 | lua-resty-ngxvar                     | Apache-2.0      |    |
 | lua-resty-openidc                    | Apache-2.0      |    |
@@ -131,15 +131,59 @@ Most of dependencies have Apache compatible licenses，and the detail as follows
 | lua-tinyyaml                         | MIT             |    |
 | lua-rapidjson                        | MIT             |    |
 | luafilesystem                        | MIT             |    |
+| iresty-nginx-lua-prometheus          | MIT             |    |
 
-The dependencies of front-end dashboard are as follows:
+As all front-end dashboard dependencies are managed using [NPM](https://github.com/iresty/apisix_dashboard/blob/master/package.json), none of the external libraries need to be packaged in a source distribution.
+
+All of dependencies have Apache compatible licenses，and the detail as follows:
 
 | *Dependency*                         | *License*       | *Comments* |
 | ------------------------------------ | --------------- | ------- |
-| element                              | MIT    |    |
-| vue-typescript-admin-template        | MIT    |    |
-| vue-element-admin                    | MIT    |    |
-| vue                                  | MIT    |    |
+| vue-image-crop-upload                | ISC             |    |
+| tinymce/tinymce-vue                  | Apache-2.0      |    |
+| echarts                              | Apache-2.0      |    |
+| fuse.js                              | Apache-2.0      |    |
+| xlsx                                 | Apache-2.0      |    |
+| jszip                                | MIT or GPLv3    |    |
+| vue-typescript-admin-template        | MIT             |    |
+| vue-element-admin                    | MIT             |    |
+| types/http-proxy-middleware          | MIT             |    |
+| axios                                | MIT             |    |
+| clipboard                            | MIT             |    |
+| codemirror                           | MIT             |    |
+| cors                                 | MIT             |    |
+| driver.js                            | MIT             |    |
+| element-ui                           | MIT             |    |
+| faker                                | MIT             |    |
+| file-saver                           | MIT             |    |
+| http-proxy-middleware                | MIT             |    |
+| js-cookie                            | MIT             |    |
+| jsonlint                             | MIT             |    |
+| lodash                               | MIT             |    |
+| morgan                               | MIT             |    |
+| normalize.css                        | MIT             |    |
+| nprogress                            | MIT             |    |
+| path-to-regexp                       | MIT             |    |
+| register-service-worker              | MIT             |    |
+| screenfull                           | MIT             |    |
+| script-loader                        | MIT             |    |
+| sortablejs                           | MIT             |    |
+| tui-editor                           | MIT             |    |
+| uuid                                 | MIT             |    |
+| vue                                  | MIT             |    |
+| vue-class-component                  | MIT             |    |
+| vue-count-to                         | MIT             |    |
+| vue-i18n                             | MIT             |    |
+| vue-property-decorator               | MIT             |    |
+| vue-router                           | MIT             |    |
+| vue-splitpane                        | MIT             |    |
+| vue-svgicon                          | MIT             |    |
+| vue2-dropzone                        | MIT             |    |
+| vuedraggable                         | MIT             |    |
+| vuex                                 | MIT             |    |
+| vuex-class                           | MIT             |    |
+| vuex-module-decorators               | MIT             |    |
+| yamljs                               | MIT             |    |
 
 ## Required Resources
 
@@ -169,6 +213,12 @@ Travis CI
 - Zhiyuan Ju([jjzhiyuan@gmail.com](mailto:jjzhiyuan@gmail.com))
 - Junxu Chen([4061470@qq.com](mailto:4061470@qq.com))
 - Yong Li([chnliyong@hotmail.com](mailto:chnliyong@hotmail.com))
+- Suo Zhang([coolsoul0551@qq.com](mailto:coolsoul0551@qq.com))
+- Ke Tang([itangke1990@gmail.com](mailto:citangke1990@gmail.com))
+- Chunlin Wu([linsir@live.com](mailto:linsir@live.com))
+- Lang Wang([gk.wl@qq.com](mailto:gk.wl@qq.com))
+- Hui Li([794089112@qq.com](mailto:794089112@qq.com))
+- Zhiyong Li([lizhiyong4360@gmail.com](mailto:lizhiyong4360@gmail.com))
 
 ## Affiliations
 
@@ -176,17 +226,21 @@ Travis CI
 - Meizu: Junxu Chen
 - Dasouche: Yong Li
 - Individuals: Zhiyuan Ju
+- Yanhuang Online: Suo Zhang
+- GangRong Tech: Ke Tang
+- Axinfu: Chunlin Wu
+- Learnta: Lang Wang
+- Tencent: Hui Li
+- Zero tone Tech: Zhiyong Li
 
 ## Sponsors
 
 ### Champion
-
+- Willem Ning Jiang, ningjiang@apache.org
 
 ### Mentors
-
-
-### Informal Mentors
-
+- Willem Ning Jiang, ningjiang@apache.org
+- Justin Mclean, jmclean@apache.org
 
 ### Sponsoring Entity
 
