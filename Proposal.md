@@ -50,7 +50,6 @@ APISIX will seek more developers and user communities during incubation.
 ### Core Developers
 
 The core developers, including experienced open source developers and team leaders, have formed a group full of diversity.
-- [PMC members](https://github.com/iresty/Organization/blob/master/README.md#project-management-committee-pmc)
 - [Committer Team members](https://github.com/iresty/Organization/blob/master/README.md#committer-team)
 
 ## Known Risks
@@ -144,7 +143,7 @@ All of dependencies have Apache compatible licenses，and the detail as follows:
 | echarts                              | Apache-2.0      |    |
 | fuse.js                              | Apache-2.0      |    |
 | xlsx                                 | Apache-2.0      |    |
-| jszip                                | MIT or GPLv3    |    |
+| jszip                                | MIT             |    |
 | vue-typescript-admin-template        | MIT             |    |
 | vue-element-admin                    | MIT             |    |
 | types/http-proxy-middleware          | MIT             |    |
