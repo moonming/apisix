@@ -138,51 +138,29 @@ All of dependencies have Apache compatible licenses，and the detail as follows:
 
 | *Dependency*                         | *License*       | *Comments* |
 | ------------------------------------ | --------------- | ------- |
-| vue-image-crop-upload                | ISC             |    |
-| tinymce/tinymce-vue                  | Apache-2.0      |    |
-| echarts                              | Apache-2.0      |    |
-| fuse.js                              | Apache-2.0      |    |
-| xlsx                                 | Apache-2.0      |    |
-| jszip                                | MIT             |    |
-| vue-typescript-admin-template        | MIT             |    |
-| vue-element-admin                    | MIT             |    |
-| types/http-proxy-middleware          | MIT             |    |
-| axios                                | MIT             |    |
-| clipboard                            | MIT             |    |
-| codemirror                           | MIT             |    |
-| cors                                 | MIT             |    |
-| driver.js                            | MIT             |    |
-| element-ui                           | MIT             |    |
-| faker                                | MIT             |    |
-| file-saver                           | MIT             |    |
-| http-proxy-middleware                | MIT             |    |
-| js-cookie                            | MIT             |    |
-| jsonlint                             | MIT             |    |
-| lodash                               | MIT             |    |
-| morgan                               | MIT             |    |
-| normalize.css                        | MIT             |    |
-| nprogress                            | MIT             |    |
-| path-to-regexp                       | MIT             |    |
-| register-service-worker              | MIT             |    |
-| screenfull                           | MIT             |    |
-| script-loader                        | MIT             |    |
-| sortablejs                           | MIT             |    |
-| tui-editor                           | MIT             |    |
-| uuid                                 | MIT             |    |
-| vue                                  | MIT             |    |
-| vue-class-component                  | MIT             |    |
-| vue-count-to                         | MIT             |    |
-| vue-i18n                             | MIT             |    |
-| vue-property-decorator               | MIT             |    |
-| vue-router                           | MIT             |    |
-| vue-splitpane                        | MIT             |    |
-| vue-svgicon                          | MIT             |    |
-| vue2-dropzone                        | MIT             |    |
-| vuedraggable                         | MIT             |    |
-| vuex                                 | MIT             |    |
-| vuex-class                           | MIT             |    |
-| vuex-module-decorators               | MIT             |    |
-| yamljs                               | MIT             |    |
+| fuse.js |	Apache-2.0 |
+|echarts	| Apache-2.0|
+|axios	|MIT|
+|element-ui	|MIT|
+|js-cookie	|MIT|
+|normalize.css	|MIT|
+|nprogress	|MIT|
+|path-to-regexp	|MIT|
+|register-service-worker	|MIT|
+|screenfull	|MIT|
+|uuid	|MIT|
+|vue	|MIT|
+|vue-class-component	|MIT|
+|vue-count-to	|MIT|
+|vue-element-admin                    | MIT  |
+|vue-i18n	|MIT|
+|vue-property-decorator	|MIT|
+|vue-router	|MIT|
+|vue-svgicon	|MIT|
+|vue-typescript-admin-template        | MIT  |
+|vuex	|MIT|
+|vuex-class	|MIT|
+|vuex-module-decorators	|MIT|
 
 ## Required Resources
 
@@ -218,6 +196,7 @@ Travis CI
 - Lang Wang([gk.wl@qq.com](mailto:gk.wl@qq.com))
 - Hui Li([794089112@qq.com](mailto:794089112@qq.com))
 - Zhiyong Li([lizhiyong4360@gmail.com](mailto:lizhiyong4360@gmail.com))
+- Jinchao Shuai([shuaijinchao@gmail.com](mailto:shuaijinchao@gmail.com))
 
 ## Affiliations
 
@@ -231,6 +210,7 @@ Travis CI
 - Learnta: Lang Wang
 - Tencent: Hui Li
 - Zero tone Tech: Zhiyong Li
+- TAL Education: Jinchao Shuai
 
 ## Sponsors
 
@@ -240,6 +220,8 @@ Travis CI
 ### Mentors
 - Willem Ning Jiang, ningjiang@apache.org
 - Justin Mclean, jmclean@apache.org
+- Kevin Ratnasekera, djkevincr1989@gmail.com
+- Gosling Von, fengjia10@gmail.com
 
 ### Sponsoring Entity
 
