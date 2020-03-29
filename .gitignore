@@ -55,8 +55,6 @@ client_body_temp
 utils/lj-releng
 .idea/
 *.iml
-dashboard/
-\.*
 
 # .travis
 !.travis/*.sh
