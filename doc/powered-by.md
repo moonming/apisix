@@ -33,8 +33,11 @@ Users are encouraged to add themselves to this page, [issue](https://github.com/
 1. <a href="https://fansup.mobi/" rel="nofollow">fansup</a>
 1. <a href="http://haieruplus.com/" rel="nofollow">haieruplus 海尔优家</a>
 1. <a href="https://www.hellotalk.com/" rel="nofollow">HelloTalk, Inc.</a>
+1. <a href="http://www.hellowin.cn/" rel="nofollow">hellowin 好络维医疗</a>
 1. <a href="https://www.ke.com/" rel="nofollow">ke.com 贝壳找房</a>
+1. <a href="https://jr.ly.com/" rel="nofollow"> ly.com 同程金服</a>
 1. <a href="https://www.meizu.com/" rel="nofollow">Meizu 魅族</a>
+1. <a href="https://www.jiandanxinli.com/" rel="nofollow">jiandanxinli 简单心理</a>
 1. <a href="https://www.jpl.nasa.gov" rel="nofollow">NASA JPL 美国国家航空航天局 喷气推进实验室</a>
 1. <a href="http://www.163.com" rel="nofollow">Netease 网易</a>
 1. <a href="http://sinog2c.com" rel="nofollow">sinog2c 湖南国科云通</a>
@@ -44,6 +47,7 @@ Users are encouraged to add themselves to this page, [issue](https://github.com/
 1. <a href="https://cloud.tencent.com/" rel="nofollow">Tencent Cloud 腾讯云</a>
 1. <a href="http://travelsky.com" rel="nofollow"> Travelsky 中国航信</a>
 1. <a href="https://vbill.cn/" rel="nofollow">vbill 随行付</a>
+1. <a href="https://www.willclass.com/" rel="nofollow">willclass 会通教育</a>
 1. <a href="https://www.xin.com/" rel="nofollow">Xin 优信二手车</a>
 1. <a href="https://www.zuzuche.com/" rel="nofollow">zuzuche 租租车</a>
 
