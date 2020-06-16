@@ -31,7 +31,7 @@ The proxy-cache plugin, which provides the ability to cache upstream response da
 
 |Name          |Requirement  | Type |Description|
 |------- |-----|------|------|
-|cache_zone|required|string|Specify which cache area to use, each cache area can be configured with different paths. In addition, cache areas can be predefined in conf/config.yaml file|
+|cache_zone|required|string|Specify which cache area to use, each cache area can be configured with different paths. In addition, cache areas can be predefined in conf/config.yaml file, the default value is "disk_cache_one"|
 |cache_key|required|array[string]|key of a cache, can use variables. For example: ["$host", "$uri", "-cache-id"]|
 |cache_bypass|optional|array[string]|Whether to skip cache retrieval. That is, do not look for data in the cache. It can use variables, and note that cache data retrieval will be skipped when the value of this attribute is not empty or not '0'. For example: ["$arg_bypass"]|
 |cache_method|optional|array[string]|Decide whether to be cached according to the request method|

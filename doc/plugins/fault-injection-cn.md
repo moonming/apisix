@@ -29,7 +29,7 @@
 |------- |-----|------|
 |abort.http_status|是|返回给客户端的 http 状态码|
 |abort.body|否|返回给客户端的响应数据|
-|delay.duration|是|延迟时间，可以指定小数|
+|delay.duration|是|延迟时间，单位是秒，可以指定小数|
 
 注：参数 abort 和 delay 至少要存在一个
 

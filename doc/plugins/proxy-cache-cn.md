@@ -31,7 +31,7 @@
 
 |名称    |必须|类型|描述|
 |------- |-----|------|------|
-|cache_zone|是|string|指定使用哪个缓存区域，不同的缓存区域可以配置不同的路径，在conf/config.yaml文件中可以预定义使用的缓存区域|
+|cache_zone|是|string|指定使用哪个缓存区域，不同的缓存区域可以配置不同的路径，在conf/config.yaml文件中可以预定义使用的缓存区域，默认是"disk_cache_one"|
 |cache_key|是|array[string]|缓存key，可以使用变量。例如：["$host", "$uri", "-cache-id"]|
 |cache_bypass|否|array[string]|是否跳过缓存检索，即不在缓存中查找数据，可以使用变量，需要注意当此参数的值不为空或非'0'时将会跳过缓存的检索。例如：["$arg_bypass"]|
 |cache_method|否|array[string]|根据请求method决定是否需要缓存|
