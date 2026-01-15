@@ -39,7 +39,7 @@ local _M = {
 }
 
 
-local function service_info()
+local function parse_service_url(url_str)
     local host = local_conf.discovery and
         local_conf.discovery.eureka and local_conf.discovery.eureka.host
     if not host then
@@ -48,8 +48,7 @@ local function service_info()
     end
 
     local basic_auth
-    -- TODO Add health check to get healthy nodes.
-    local url = host[math_random(#host)]
+    local url = url_str
     local auth_idx = str_find(url, "@")
     if auth_idx then
         local protocol_idx = str_find(url, "://")
@@ -145,53 +144,70 @@ local function fetch_full_registry(premature)
         return
     end
 
-    local request_uri, basic_auth = service_info()
-    if not request_uri then
+    local conf = local_conf.discovery and local_conf.discovery.eureka
+    local host = conf and conf.host
+    if not host then
+        log.error("do not set eureka.host")
         return
     end
 
-    local res, err = request(request_uri, basic_auth, "GET", "apps")
-    if not res then
-        log.error("failed to fetch registry", err)
-        return
-    end
+    local hosts_count = #host
+    local start_index = math_random(hosts_count)
 
-    if not res.body or res.status ~= 200 then
-        log.error("failed to fetch registry, status = ", res.status)
-        return
-    end
+    for i = 0, hosts_count - 1 do
+        local idx = (start_index + i - 1) % hosts_count + 1
+        local request_uri, basic_auth = parse_service_url(host[idx])
+        if not request_uri then
+            goto continue
+        end
 
-    local json_str = res.body
-    local data, err = core.json.decode(json_str)
-    if not data then
-        log.error("invalid response body: ", json_str, " err: ", err)
-        return
-    end
-    local apps = data.applications.application
-    local up_apps = core.table.new(0, #apps)
-    for _, app in ipairs(apps) do
-        for _, instance in ipairs(app.instance) do
-            local ip, port, metadata = parse_instance(instance)
-            if ip and port then
-                local nodes = up_apps[app.name]
-                if not nodes then
-                    nodes = core.table.new(#app.instance, 0)
-                    up_apps[app.name] = nodes
-                end
-                core.table.insert(nodes, {
-                    host = ip,
-                    port = port,
-                    weight = metadata and metadata.weight or default_weight,
-                    metadata = metadata,
-                })
-                if metadata then
-                    -- remove useless data
-                    metadata.weight = nil
+        local res, err = request(request_uri, basic_auth, "GET", "apps")
+        if not res then
+            log.error("failed to fetch registry: ", err)
+            goto continue
+        end
+
+        if not res.body or res.status ~= 200 then
+            log.error("failed to fetch registry, status = ", res and res.status)
+            goto continue
+        end
+
+        local json_str = res.body
+        local data, err = core.json.decode(json_str)
+        if not data then
+            log.error("invalid response body: ", json_str, " err: ", err)
+            goto continue
+        end
+
+        local apps = data.applications.application
+        local up_apps = core.table.new(0, #apps)
+        for _, app in ipairs(apps) do
+            for _, instance in ipairs(app.instance) do
+                local ip, port, metadata = parse_instance(instance)
+                if ip and port then
+                    local nodes = up_apps[app.name]
+                    if not nodes then
+                        nodes = core.table.new(#app.instance, 0)
+                        up_apps[app.name] = nodes
+                    end
+                    core.table.insert(nodes, {
+                        host = ip,
+                        port = port,
+                        weight = metadata and metadata.weight or default_weight,
+                        metadata = metadata,
+                    })
+                    if metadata then
+                        -- remove useless data
+                        metadata.weight = nil
+                    end
                 end
             end
         end
+        applications = up_apps
+        return
+
+        ::continue::
     end
-    applications = up_apps
 end
 
 
