@@ -477,6 +477,23 @@ fi
 
 echo "passed: keep variables as strings for string fields"
 
+# the field type is looked up after a variable in the key itself is resolved
+echo '
+discovery:
+    ${{DISCOVERY_KIND}}:
+        host:
+            - "http://127.0.0.1:8848"
+        secret_key: ${{NACOS_SECRET_KEY}}
+' > conf/config.yaml
+
+if ! DISCOVERY_KIND=nacos NACOS_SECRET_KEY=123456 make init > output.log 2>&1; then
+    cat output.log
+    echo "failed: a variable in a key should not change the type of its value"
+    exit 1
+fi
+
+echo "passed: keep variables as strings under a key that is a variable"
+
 # the keyring written as a single key, and a discovery schema with alternatives
 echo '
 apisix:
