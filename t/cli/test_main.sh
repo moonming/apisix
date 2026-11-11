@@ -487,12 +487,33 @@ deployment:
 ' > conf/config.yaml
 
 out=$(make init 2>&1 || true)
-if ! echo "$out" | grep 'property "key" validation failed: wrong type: expected string, got number' > /dev/null; then
+if ! echo "$out" | grep 'property "key" validation failed: wrong type: .*, got number' > /dev/null; then
     echo "failed: should reject an admin key written as a number"
     exit 1
 fi
 
 echo "passed: reject an admin key written as a number"
+
+# a key left empty, as a template renders for an unused viewer key, is still valid
+echo '
+deployment:
+    admin:
+        admin_key:
+            - name: admin
+              key: admin-key-for-test
+              role: admin
+            - name: viewer
+              key:
+              role: viewer
+' > conf/config.yaml
+
+if ! make init > output.log 2>&1; then
+    cat output.log
+    echo "failed: an empty admin key should still be accepted"
+    exit 1
+fi
+
+echo "passed: accept an empty admin key"
 
 echo '
 nginx_config:

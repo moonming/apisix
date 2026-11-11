@@ -381,6 +381,14 @@ local config_schema = {
     required = {"apisix", "deployment"},
 }
 
+-- a field left empty in YAML, such as `key:`, is loaded as lyaml.null, an
+-- empty table. Such a key matches no request, but it has always been accepted
+-- (a template that leaves the viewer key empty renders it), so it stays valid.
+local admin_key_field_schema = {
+    type = {"string", "object"},
+    maxProperties = 0,
+}
+
 local admin_schema = {
     type = "object",
     properties = {
@@ -388,9 +396,9 @@ local admin_schema = {
             type = "array",
             items = {
                 properties = {
-                    name = {type = "string"},
-                    key = {type = "string"},
-                    role = {type = "string"},
+                    name = admin_key_field_schema,
+                    key = admin_key_field_schema,
+                    role = admin_key_field_schema,
                 }
             }
         },
@@ -493,8 +501,13 @@ end
 
 
 local function collect_types(node, types)
-    if type(node.type) == "string" then
-        types[node.type] = true
+    local node_type = node.type
+    if type(node_type) == "string" then
+        types[node_type] = true
+    elseif type(node_type) == "table" then
+        for _, name in ipairs(node_type) do
+            types[name] = true
+        end
     end
 
     for _, keyword in ipairs(alternative_keywords) do
@@ -507,7 +520,8 @@ local function collect_types(node, types)
 end
 
 
-local function only_accepts_string(node)
+-- whether `node` accepts a string but neither a number nor a boolean
+local function expects_string(node)
     local types = collect_types(node, {})
     return types.string and not (types.number or types.integer or types.boolean)
 end
@@ -531,7 +545,7 @@ end
 -- APISIX_ADMIN_KEY=123456 stays the string "123456".
 function _M.is_string_field(path)
     local node = schema_at(config_schema, path, 1)
-    if node and only_accepts_string(node) then
+    if node and expects_string(node) then
         return true
     end
 
@@ -540,7 +554,7 @@ function _M.is_string_field(path)
         -- the roles share the schemas of the sections they have in common
         for _, role_schema in pairs(deployment_schema) do
             node = schema_at(role_schema, path, 2)
-            if node and only_accepts_string(node) then
+            if node and expects_string(node) then
                 return true
             end
         end
@@ -550,7 +564,7 @@ function _M.is_string_field(path)
                                            "apisix.discovery." .. path[2] .. ".schema")
         if ok then
             node = schema_at(discovery_schema, path, 3)
-            if node and only_accepts_string(node) then
+            if node and expects_string(node) then
                 return true
             end
         end
