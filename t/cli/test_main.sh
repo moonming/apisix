@@ -226,13 +226,114 @@ nginx_config:
 
 make init
 
-grep "env TEST;" conf/nginx.conf > /dev/null
+grep 'env "TEST";' conf/nginx.conf > /dev/null
 if [ ! $? -eq 0 ]; then
     echo "failed: failed to update env"
     exit 1
 fi
 
 echo "passed: change default env"
+
+# env value with spaces must be rendered as a quoted directive (#11467)
+echo '
+nginx_config:
+    envs:
+        - TEST=a b
+' > conf/config.yaml
+
+make init
+
+if ! grep 'env "TEST=a b";' conf/nginx.conf > /dev/null; then
+    echo "failed: env value with spaces should be quoted"
+    exit 1
+fi
+
+mkdir -p logs
+if ! openresty -p "$PWD" -c "$PWD/conf/nginx.conf" -t; then
+    echo "failed: nginx rejects generated conf with quoted env"
+    exit 1
+fi
+
+# embedded quote / backslash are escaped
+cat > conf/config.yaml <<'EOF'
+nginx_config:
+    envs:
+        - "TEST=a\"b\\c"
+EOF
+
+make init
+
+if ! grep -F 'env "TEST=a\"b\\c";' conf/nginx.conf > /dev/null; then
+    echo "failed: quote/backslash in env value should be escaped"
+    exit 1
+fi
+
+if ! openresty -p "$PWD" -c "$PWD/conf/nginx.conf" -t; then
+    echo "failed: nginx rejects generated conf with escaped env"
+    exit 1
+fi
+
+# control characters are rejected at schema level
+cat > conf/config.yaml <<'EOF'
+nginx_config:
+    envs:
+        - "TEST=a\nb"
+EOF
+
+out=$(make init 2>&1 || true)
+if ! echo "$out" | grep "failed to validate config"; then
+    echo "failed: env value with control chars should be rejected"
+    exit 1
+fi
+
+# entries synthesized by kubernetes discovery bypass the config schema, so the
+# control-character check must also run on the final list
+cat > conf/config.yaml <<'EOF'
+discovery:
+    kubernetes:
+        client:
+            token_file: "${A\nB}"
+EOF
+
+out=$(make init 2>&1 || true)
+if ! echo "$out" | grep "control characters are not allowed"; then
+    echo "failed: synthesized env entry with control chars should be rejected"
+    exit 1
+fi
+
+echo "passed: env value quoting (#11467)"
+
+# a 32 byte data encryption key selects AES-256 and must pass config validation
+cat > conf/config.yaml <<'EOF'
+apisix:
+    data_encryption:
+        keyring:
+            - qeddd145sfvddff3qeddd145sfvddff3
+            - qeddd145sfvddff3
+EOF
+
+out=$(make init 2>&1 || true)
+if echo "$out" | grep "failed to validate config"; then
+    echo "failed: a 32 byte data encryption keyring should be accepted"
+    exit 1
+fi
+
+# a key that is neither 16 nor 32 bytes would be dropped at runtime and silently
+# leave the data unencrypted, so it has to be rejected on startup
+cat > conf/config.yaml <<'EOF'
+apisix:
+    data_encryption:
+        keyring:
+            - qeddd145sfvddff3qedd
+EOF
+
+out=$(make init 2>&1 || true)
+if ! echo "$out" | grep "failed to validate config"; then
+    echo "failed: a data encryption keyring of an unsupported length should be rejected"
+    exit 1
+fi
+
+echo "passed: data encryption keyring length validation"
 
 # support environment variables
 echo '
@@ -243,7 +344,7 @@ nginx_config:
 
 var_test=TEST FOO=bar make init
 
-if ! grep "env TEST_bar;" conf/nginx.conf > /dev/null; then
+if ! grep 'env "TEST_bar";' conf/nginx.conf > /dev/null; then
     echo "failed: failed to resolve variables"
     exit 1
 fi
@@ -320,6 +421,156 @@ fi
 
 echo "passed: resolve variables as boolean"
 
+# a variable that looks like a number or a boolean stays a string where the
+# schema expects a string; admin_listen.port is still converted to an integer
+echo '
+deployment:
+    admin:
+        admin_listen:
+            port: ${{ADMIN_PORT}}
+        admin_key:
+            - name: admin
+              key: ${{ADMIN_KEY}}
+              role: admin
+            - name: viewer
+              key: ${{VIEWER_KEY}}
+              role: viewer
+' > conf/config.yaml
+
+ADMIN_PORT=9180 ADMIN_KEY=123456 VIEWER_KEY=true make init
+ADMIN_PORT=9180 ADMIN_KEY=123456 VIEWER_KEY=true make run
+
+admin_api_code() {
+    curl -o /dev/null -s -m 5 -w %{http_code} --retry 5 --retry-delay 1 --retry-connrefused \
+        -H "X-API-KEY: $1" http://127.0.0.1:9180/apisix/admin/routes
+}
+admin_code=$(admin_api_code 123456)
+viewer_code=$(admin_api_code true)
+wrong_code=$(admin_api_code 1234567)
+make stop
+
+if [ "$admin_code" != "200" ] || [ "$viewer_code" != "200" ] || [ "$wrong_code" != "401" ]; then
+    echo "failed: admin keys from variables should stay strings, got $admin_code for" \
+         "the admin key, $viewer_code for the viewer key and $wrong_code for a wrong key"
+    exit 1
+fi
+
+echo "passed: keep variables as strings for admin keys"
+
+echo '
+apisix:
+    data_encryption:
+        keyring:
+            - ${{KEYRING}}
+discovery:
+    nacos:
+        host:
+            - "http://127.0.0.1:8848"
+        secret_key: ${{NACOS_SECRET_KEY}}
+' > conf/config.yaml
+
+if ! KEYRING=1234567890123456 NACOS_SECRET_KEY=123456 make init > output.log 2>&1; then
+    cat output.log
+    echo "failed: numeric variables for string fields should stay strings"
+    exit 1
+fi
+
+echo "passed: keep variables as strings for string fields"
+
+# the field type is looked up after a variable in the key itself is resolved
+echo '
+discovery:
+    ${{DISCOVERY_KIND}}:
+        host:
+            - "http://127.0.0.1:8848"
+        secret_key: ${{NACOS_SECRET_KEY}}
+' > conf/config.yaml
+
+if ! DISCOVERY_KIND=nacos NACOS_SECRET_KEY=123456 make init > output.log 2>&1; then
+    cat output.log
+    echo "failed: a variable in a key should not change the type of its value"
+    exit 1
+fi
+
+echo "passed: keep variables as strings under a key that is a variable"
+
+# the keyring written as a single key, and a discovery schema with alternatives
+echo '
+apisix:
+    data_encryption:
+        keyring: ${{KEYRING}}
+discovery:
+    kubernetes:
+        service:
+            host: 127.0.0.1
+            port: ${{K8S_PORT}}
+        client:
+            token: ${{K8S_TOKEN}}
+' > conf/config.yaml
+
+if ! KEYRING=1234567890123456 K8S_PORT=6443 K8S_TOKEN=123456 make init > output.log 2>&1; then
+    cat output.log
+    echo "failed: numeric variables for string fields should stay strings"
+    exit 1
+fi
+
+echo "passed: keep variables as strings for a single keyring key and kubernetes discovery"
+
+echo '
+deployment:
+    admin:
+        admin_key:
+            - name: admin
+              key: 123456
+              role: admin
+' > conf/config.yaml
+
+out=$(make init 2>&1 || true)
+if ! echo "$out" | grep 'property "key" validation failed: wrong type: .*, got number' > /dev/null; then
+    echo "failed: should reject an admin key written as a number"
+    exit 1
+fi
+
+echo "passed: reject an admin key written as a number"
+
+echo '
+deployment:
+    admin:
+        admin_key:
+            - name: admin
+              key: true
+              role: admin
+' > conf/config.yaml
+
+out=$(make init 2>&1 || true)
+if ! echo "$out" | grep 'property "key" validation failed: wrong type: .*, got boolean' > /dev/null; then
+    echo "failed: should reject an admin key written as a boolean"
+    exit 1
+fi
+
+echo "passed: reject an admin key written as a boolean"
+
+# a key left empty, as a template renders for an unused viewer key, is still valid
+echo '
+deployment:
+    admin:
+        admin_key:
+            - name: admin
+              key: admin-key-for-test
+              role: admin
+            - name: viewer
+              key:
+              role: viewer
+' > conf/config.yaml
+
+if ! make init > output.log 2>&1; then
+    cat output.log
+    echo "failed: an empty admin key should still be accepted"
+    exit 1
+fi
+
+echo "passed: accept an empty admin key"
+
 echo '
 nginx_config:
     envs:
@@ -328,7 +579,7 @@ nginx_config:
 
 var_test=TEST FOO=bar make init
 
-if ! grep "env TEST_bar;" conf/nginx.conf > /dev/null; then
+if ! grep 'env "TEST_bar";' conf/nginx.conf > /dev/null; then
     echo "failed: failed to resolve variables wrapped with whitespace"
     exit 1
 fi
@@ -348,7 +599,7 @@ deployment:
 
 ETCD_HOST=127.0.0.1 ETCD_PORT=2379 make init
 
-if ! grep "env ETCD_HOST;" conf/nginx.conf > /dev/null; then
+if ! grep 'env "ETCD_HOST";' conf/nginx.conf > /dev/null; then
     echo "failed: support environment variables in local_conf"
     exit 1
 fi
@@ -369,12 +620,12 @@ nginx_config:
 
 ETCD_HOST=127.0.0.1 ETCD_PORT=2379 make init
 
-if grep "env ETCD_HOST=.*;" conf/nginx.conf > /dev/null; then
+if grep 'env "ETCD_HOST=.*";' conf/nginx.conf > /dev/null; then
     echo "failed: support environment variables in local_conf"
     exit 1
 fi
 
-if ! grep "env ETCD_HOST;" conf/nginx.conf > /dev/null; then
+if ! grep 'env "ETCD_HOST";' conf/nginx.conf > /dev/null; then
     echo "failed: support environment variables in local_conf"
     exit 1
 fi
@@ -394,12 +645,12 @@ nginx_config:
 
 ETCD_HOST=127.0.0.1 ETCD_PORT=2379 make init
 
-if grep "env ETCD_HOST;" conf/nginx.conf > /dev/null; then
+if grep 'env "ETCD_HOST";' conf/nginx.conf > /dev/null; then
     echo "failed: support environment variables in local_conf"
     exit 1
 fi
 
-if ! grep "env ETCD_HOST=1.1.1.1;" conf/nginx.conf > /dev/null; then
+if ! grep 'env "ETCD_HOST=1.1.1.1";' conf/nginx.conf > /dev/null; then
     echo "failed: support environment variables in local_conf"
     exit 1
 fi
@@ -414,7 +665,7 @@ tests:
 
 make init
 
-if ! grep "env TEST_ENV;" conf/nginx.conf > /dev/null; then
+if ! grep 'env "TEST_ENV";' conf/nginx.conf > /dev/null; then
     echo "failed: should use default value when environment not set"
     exit 1
 fi
@@ -426,7 +677,7 @@ tests:
 
 make init
 
-if ! grep "env TEST_ENV;" conf/nginx.conf > /dev/null; then
+if ! grep 'env "TEST_ENV";' conf/nginx.conf > /dev/null; then
     echo "failed: should use default value when environment not set"
     exit 1
 fi
@@ -438,7 +689,7 @@ tests:
 
 TEST_ENV=127.0.0.1 make init
 
-if ! grep "env TEST_ENV;" conf/nginx.conf > /dev/null; then
+if ! grep 'env "TEST_ENV";' conf/nginx.conf > /dev/null; then
     echo "failed: should use environment variable when environment is set"
     exit 1
 fi
@@ -900,6 +1151,7 @@ nginx_config:
       balancer-ewma-locks: 20m
       balancer-ewma-last-touched-at: 20m
       plugin-limit-count-redis-cluster-slot-lock: 2m
+      plugin-saml-auth-replay: 20m
       tracing_buffer: 20m
       plugin-api-breaker: 20m
       etcd-cluster-health-check: 20m
@@ -968,6 +1220,11 @@ fi
 
 if ! grep "plugin-limit-count-redis-cluster-slot-lock 2m;" conf/nginx.conf > /dev/null; then
     echo "failed: 'plugin-limit-count-redis-cluster-slot-lock 2m;' not in nginx.conf"
+    exit 1
+fi
+
+if ! grep "plugin-saml-auth-replay 20m;" conf/nginx.conf > /dev/null; then
+    echo "failed: 'plugin-saml-auth-replay 20m;' not in nginx.conf"
     exit 1
 fi
 

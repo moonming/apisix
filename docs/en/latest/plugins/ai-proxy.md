@@ -44,6 +44,28 @@ In addition, the Plugin also supports logging LLM request information in the acc
 
 ## Request Format
 
+### Request Protocol Detection
+
+The Plugin detects the client request protocol before selecting a compatible upstream endpoint. It checks the following rules in order:
+
+| Client protocol | Detection | Route URI |
+| --- | --- | --- |
+| Bedrock Converse | The request body contains a `messages` array and the request URI ends in `/converse`. | The URI can have a custom prefix, but it must keep the `/converse` suffix. |
+| Anthropic Messages | The request body is a JSON object or array and the request URI ends in `/v1/messages`. | The URI can have a custom prefix, but it must keep the `/v1/messages` suffix. |
+| OpenAI Responses | The request body contains `input` and the request URI ends in `/v1/responses`. | The URI can have a custom prefix, but it must keep the `/v1/responses` suffix. |
+| OpenAI Chat Completions | The request body contains a `messages` array. | Any URI matched by the Route. |
+| OpenAI Embeddings | The request body contains `input`, and no earlier rule matched. | Any URI matched by the Route. |
+
+The URI-specific rules run before the body-only rules. This prevents Bedrock Converse and Anthropic Messages requests containing `messages` from being identified as Chat Completions. Responses and Embeddings requests both use `input`, so a request containing `input` but not `messages` is identified as Embeddings unless its URI ends in `/v1/responses`. If no earlier rule matches, the Plugin treats a non-empty JSON object or array as passthrough. Empty or invalid request bodies are rejected.
+
+Requests that include `Content-Type` must use `application/json`. If the header is omitted, the Plugin treats the body as JSON. The request body cannot exceed `max_req_body_size`, which defaults to 67,108,864 bytes; a larger body is rejected with HTTP `413`.
+
+Passthrough does not provide a named AI protocol to downstream AI-aware Plugins. Usage extraction, prompt decoration, content-moderation text extraction, and protocol conversion therefore do not run for a passthrough body. The `ai-prompt-template` Plugin runs earlier in the rewrite phase and can replace the body before protocol detection, so the rendered body can match a named protocol or remain passthrough.
+
+For a named protocol, the Plugin uses it directly when the selected provider supports it. Otherwise, it uses a registered converter to a protocol supported by the provider. The request is rejected when neither native support nor a compatible converter is available.
+
+### Chat Completions Request Format
+
 | Name               | Type   | Required | Description                                         |
 | ------------------ | ------ | -------- | --------------------------------------------------- |
 | `messages`         | Array  | True      | An array of message objects.                        |
@@ -67,7 +89,7 @@ When `provider` is set to `bedrock`, the Plugin expects requests in the [Bedrock
 
 | Name               | Type    | Required | Default | Valid values                              | Description |
 |--------------------|--------|----------|---------|------------------------------------------|-------------|
-| provider          | string  | True     |         | [openai, deepseek, azure-openai, aimlapi, anthropic, openrouter, gemini, vertex-ai, bedrock, openai-compatible] | LLM service provider. When set to `openai`, the Plugin will proxy the request to `https://api.openai.com/chat/completions`. When set to `deepseek`, the Plugin will proxy the request to `https://api.deepseek.com/chat/completions`. When set to `aimlapi`, the Plugin uses the OpenAI-compatible driver and proxies the request to `https://api.aimlapi.com/v1/chat/completions` by default. When set to `anthropic`, the Plugin will proxy the request to `https://api.anthropic.com/v1/chat/completions` by default. When set to `openrouter`, the Plugin uses the OpenAI-compatible driver and proxies the request to `https://openrouter.ai/api/v1/chat/completions` by default. When set to `gemini`, the Plugin uses the OpenAI-compatible driver and proxies the request to `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions` by default. When set to `vertex-ai`, the Plugin will proxy the request to `https://aiplatform.googleapis.com` by default and requires `provider_conf` or `override`. When set to `bedrock`, the Plugin will proxy the request to the AWS Bedrock Converse API (`https://bedrock-runtime.<region>.amazonaws.com`) and signs the request with AWS SigV4. When set to `openai-compatible`, the Plugin will proxy the request to the custom endpoint configured in `override`. |
+| provider          | string  | True     |         | [openai, deepseek, azure-openai, aimlapi, anthropic, openrouter, gemini, vertex-ai, bedrock, openai-compatible] | LLM service provider. When set to `openai`, the Plugin sends detected Chat Completions, Responses, and Embeddings requests to the corresponding OpenAI endpoint. When set to `deepseek`, the Plugin will proxy the request to `https://api.deepseek.com/chat/completions`. When set to `aimlapi`, the Plugin uses the OpenAI-compatible driver and proxies the request to `https://api.aimlapi.com/v1/chat/completions` by default. When set to `anthropic`, the Plugin sends detected Chat Completions requests to `https://api.anthropic.com/v1/chat/completions` and native Anthropic Messages requests to `https://api.anthropic.com/v1/messages`. When set to `openrouter`, the Plugin uses the OpenAI-compatible driver and proxies the request to `https://openrouter.ai/api/v1/chat/completions` by default. When set to `gemini`, the Plugin uses the OpenAI-compatible driver and proxies the request to `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions` by default. When set to `vertex-ai`, the Plugin will proxy the request to `https://aiplatform.googleapis.com` by default and requires `provider_conf` or `override`. When set to `bedrock`, the Plugin will proxy the request to the AWS Bedrock Converse API (`https://bedrock-runtime.<region>.amazonaws.com`) and signs the request with AWS SigV4. When set to `openai-compatible`, the Plugin will proxy the request to the custom endpoint configured in `override`. |
 | provider_conf      | object  | False    |         |                                          | Configuration for the specific provider. Required when `provider` is set to `vertex-ai` and `override` is not configured. Required when `provider` is set to `bedrock`. |
 | provider_conf.project_id | string | True |       |                                          | Google Cloud Project ID.  |
 | provider_conf.region | string | True (depending on provider) |         | minLength = 1 (for Bedrock)              | When `provider` is `vertex-ai`, this is the Google Cloud Region. When `provider` is `bedrock`, this is the AWS region used to construct the Bedrock endpoint and to sign the request with SigV4 (required, must be non-empty). |
@@ -101,7 +123,7 @@ When `provider` is set to `bedrock`, the Plugin expects requests in the [Bedrock
 | keepalive_timeout | integer | False | 60000  | ≥ 1000                                   | Keepalive timeout in milliseconds when connecting to the LLM service. |
 | keepalive_pool | integer | False    | 30       | ≥ 1                                      | Keepalive pool size for the LLM service connection. |
 | ssl_verify     | boolean | False    | true   |                                          | If true, verifies the LLM service's certificate. |
-| streaming_flush_interval_ms | integer | False | 10 | ≥ 0 | Interval in milliseconds for the background flush thread. When `> 0` (default: `10`), a background timer calls `ngx.flush(false)` every N ms, batching output for bursty upstreams. When `0`, the background thread is disabled and each chunk is flushed synchronously via `ngx.flush(true)`, guaranteeing immediate client delivery. |
+| streaming_flush_interval_ms | integer | False | 10 | ≥ 0 | Interval in milliseconds for the background flush thread. When `> 0` (default: `10`), a background timer calls `ngx.flush(false)` every N ms, batching output for bursty upstreams. For SSE streams, only complete frames or converted events queued for the client trigger a flush; partial frames wait for the remaining upstream data. If a periodic flush returns `nothing to flush`, the stream continues. When `0`, the background thread is disabled and each chunk is flushed synchronously via `ngx.flush(true)`, guaranteeing immediate client delivery. |
 
 ## Provider-aware `max_tokens` mapping
 
@@ -145,9 +167,28 @@ By default, `ai-proxy` forwards the incoming client request headers to the confi
 
 Because the LLM upstream is often a third-party service, be aware that any header the client sends (for example `Authorization`, `Cookie`, or internal application headers) is forwarded to that provider unless it is overridden by `auth.header`. If the client should not expose certain headers to the LLM provider, strip them before the request reaches `ai-proxy`, for example with the [`proxy-rewrite`](./proxy-rewrite.md) plugin.
 
+## Upstream HTTP Client
+
+Requests to the LLM upstream go through `ngx_http_ffi_client`, a C HTTP client that costs around half the outbound CPU time of `lua-resty-http`. Both clients behave the same on the wire.
+
+`plugin_attr.ai-proxy.http_client` in `config.yaml` names the client:
+
+```yaml
+plugin_attr:
+  ai-proxy:
+    http_client: ngx_http_ffi_client # or lua-resty-http
+```
+
+- `ngx_http_ffi_client` (default): the C client. It requires an APISIX runtime built with the module, which the runtime pinned in `.requirements` is. On a runtime without it, the request fails and the error names the missing module; the plugin never silently switches clients.
+- `lua-resty-http`: the Lua client, on every runtime.
+
+The setting covers `ai-proxy`, `ai-proxy-multi`, and `ai-request-rewrite`, which share the same transport.
+
 ## Upstream Error Responses
 
 When the LLM upstream returns a `429` or `5xx` status, `ai-proxy` reads the upstream error body and returns it to the client together with the upstream status code and `Content-Type`, so provider-side error details (such as rate-limit information or validation errors) are not discarded.
+
+A streaming response is different once part of it has been delivered. The downstream response is committed as `200` with the first SSE event, so a later failure to read from the upstream (a connection reset or a read timeout) can no longer change the status. In that case `ai-proxy` stops reading, closes the upstream connection, and ends the downstream stream where it is, without a protocol-specific terminator such as `[DONE]`, `message_stop`, or `response.completed`; well-behaved clients should treat a missing terminator as an incomplete response. A read error that happens before any event reaches the client still returns `504` for a timeout and `500` otherwise.
 
 ## Examples
 
@@ -170,7 +211,7 @@ The following example demonstrates how you can configure the API key, model, and
 Obtain the OpenAI [API key](https://openai.com/blog/openai-api) and save it to an environment variable:
 
 ```shell
-export OPENAI_API_KEY=<your-api-key>
+export OPENAI_API_KEY='<your-api-key>'
 ```
 
 <Tabs
@@ -381,7 +422,7 @@ The following example demonstrates how you can configure the `ai-proxy` Plugin t
 Obtain the DeepSeek API key and save it to an environment variable:
 
 ```shell
-export DEEPSEEK_API_KEY=<your-api-key>
+export DEEPSEEK_API_KEY='<your-api-key>'
 ```
 
 <Tabs
@@ -595,7 +636,7 @@ The following example demonstrates how you can configure the `ai-proxy` Plugin t
 Obtain the Azure OpenAI API key and save it to an environment variable:
 
 ```shell
-export AZ_OPENAI_API_KEY=<your-api-key>
+export AZ_OPENAI_API_KEY='<your-api-key>'
 ```
 
 <Tabs
@@ -821,8 +862,8 @@ The following example demonstrates how you can configure the `ai-proxy` Plugin t
 Save your AWS credentials to environment variables:
 
 ```shell
-export AWS_ACCESS_KEY_ID=<your-aws-access-key-id>
-export AWS_SECRET_ACCESS_KEY=<your-aws-secret-access-key>
+export AWS_ACCESS_KEY_ID='<your-aws-access-key-id>'
+export AWS_SECRET_ACCESS_KEY='<your-aws-secret-access-key>'
 ```
 
 Create a Route and configure the `ai-proxy` Plugin as such:
@@ -916,14 +957,61 @@ curl "http://127.0.0.1:9080/bedrock/converse" -X POST \
   }' --output -
 ```
 
+### Proxy OpenAI Responses API
+
+The following example configures the `ai-proxy` Plugin to proxy OpenAI Responses API requests. Responses and Embeddings requests both contain `input`, so the Route URI must end in `/v1/responses` for the Plugin to identify the request as Responses.
+
+Obtain an [OpenAI API key](https://platform.openai.com/api-keys) and save it to an environment variable:
+
+```shell
+export OPENAI_API_KEY="<your-api-key>"
+```
+
+Create a Route with the `/v1/responses` URI:
+
+```shell
+curl "http://127.0.0.1:9180/apisix/admin/routes" -X PUT \
+  -H "X-API-KEY: ${admin_key}" \
+  -d '{
+    "id": "ai-proxy-responses-route",
+    "uri": "/v1/responses",
+    "methods": ["POST"],
+    "plugins": {
+      "ai-proxy": {
+        "provider": "openai",
+        "auth": {
+          "header": {
+            "Authorization": "Bearer '"$OPENAI_API_KEY"'"
+          }
+        },
+        "options": {
+          "model": "gpt-4.1"
+        }
+      }
+    }
+  }'
+```
+
+Send a request using the Responses API format:
+
+```shell
+curl "http://127.0.0.1:9080/v1/responses" -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "Explain API gateways in one sentence."
+  }'
+```
+
+The Plugin sends the request to the OpenAI Responses endpoint and returns the response in the Responses API format. To stream the response, add `"stream": true` to the request body and use `curl --no-buffer`.
+
 ### Proxy to OpenAI Embedding Models
 
-The following example demonstrates how you can configure the `ai-proxy` Plugin to proxy requests to embedding models. This example will use the OpenAI embedding model endpoint.
+The following example demonstrates how you can configure the `ai-proxy` Plugin to proxy requests to an OpenAI embedding model. The Plugin detects the `input` field and selects the OpenAI Embeddings endpoint.
 
 Obtain the OpenAI [API key](https://openai.com/blog/openai-api) and save it to an environment variable:
 
 ```shell
-export OPENAI_API_KEY=<your-api-key>
+export OPENAI_API_KEY='<your-api-key>'
 ```
 
 <Tabs
@@ -957,9 +1045,6 @@ curl "http://127.0.0.1:9180/apisix/admin/routes" -X PUT \
         "options":{
           "model": "text-embedding-3-small",
           "encoding_format": "float"
-        },
-        "override": {
-          "endpoint": "https://api.openai.com/v1/embeddings"
         }
       }
     }
@@ -990,8 +1075,6 @@ services:
             options:
               model: text-embedding-3-small
               encoding_format: float
-            override:
-              endpoint: "https://api.openai.com/v1/embeddings"
 ```
 
 Synchronize the configuration to the gateway:
@@ -1031,8 +1114,6 @@ spec:
         options:
           model: text-embedding-3-small
           encoding_format: float
-        override:
-          endpoint: "https://api.openai.com/v1/embeddings"
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -1086,8 +1167,6 @@ spec:
           options:
             model: text-embedding-3-small
             encoding_format: float
-          override:
-            endpoint: "https://api.openai.com/v1/embeddings"
 ```
 
 </TabItem>
@@ -1149,7 +1228,7 @@ The following example demonstrates how you can configure the `ai-proxy` Plugin t
 Obtain an Anthropic [API key](https://console.anthropic.com/settings/keys) and save it to an environment variable:
 
 ```shell
-export ANTHROPIC_API_KEY=<your-api-key>
+export ANTHROPIC_API_KEY='<your-api-key>'
 ```
 
 <Tabs
@@ -1363,7 +1442,7 @@ The protocol conversion is triggered automatically when the Route URI is set to 
 Obtain an API key for your chosen OpenAI-compatible backend service and save it to an environment variable. This example uses OpenAI:
 
 ```shell
-export BACKEND_API_KEY=<your-api-key>
+export BACKEND_API_KEY='<your-api-key>'
 ```
 
 <Tabs
@@ -1580,8 +1659,8 @@ The following example demonstrates how you can proxy requests to different model
 The example will use OpenAI and DeepSeek as the example LLM services. Obtain the OpenAI and DeepSeek API keys and save them to environment variables:
 
 ```shell
-export OPENAI_API_KEY=<your-api-key>
-export DEEPSEEK_API_KEY=<your-api-key>
+export OPENAI_API_KEY='<your-api-key>'
+export DEEPSEEK_API_KEY='<your-api-key>'
 ```
 
 <Tabs
@@ -2077,11 +2156,23 @@ In the Kafka topic, you should also see a log entry corresponding to the request
 The following example demonstrates how you can log LLM request related information in the gateway's access log to improve analytics and audit. The following variables are available:
 
 * `request_llm_model`: LLM model name specified in the request.
+* `apisix_upstream_response_time`: Time taken for APISIX to send the request to the upstream service and receive the full response, in milliseconds. Error responses from the LLM service (such as 429 or 5xx) are also recorded in milliseconds.
 * `request_type`: Type of request, where the value could be `traditional_http`, `ai_chat`, or `ai_stream`.
-* `llm_time_to_first_token`: Duration from request sending to the first token received from the LLM service, in milliseconds.
+* `llm_time_to_first_token`: Duration from request sending to the first token received from the LLM service, in milliseconds. For an error response from the LLM service, this is the duration until the error response was received. It stays `0` when the LLM service could not be reached at all.
 * `llm_model`: LLM model.
-* `llm_prompt_tokens`: Number of tokens in the prompt.
-* `llm_completion_tokens`: Number of chat completion tokens in the prompt.
+* `llm_prompt_tokens`: Number of tokens in the prompt, including tokens read from and written to the prompt cache. For the Anthropic Messages API, this is `input_tokens + cache_read_input_tokens + cache_creation_input_tokens`, which matches the meaning of OpenAI's `prompt_tokens`.
+* `llm_completion_tokens`: Number of chat completion tokens in the response.
+* `llm_total_tokens`: Total number of tokens used (prompt plus completion, including cache tokens).
+* `llm_cache_read_input_tokens`: Number of input tokens read from cache.
+* `llm_cache_creation_input_tokens`: Number of input tokens written to cache.
+* `llm_reasoning_tokens`: Number of reasoning tokens generated.
+* `llm_stream`: Whether the request is a streaming request (`true` or `false`).
+* `llm_tool_count`: Number of tools provided in the request.
+* `llm_has_tool_calls`: `true` when the response contains tool calls.
+* `llm_end_user_id`: End user identifier extracted from the request (e.g., the OpenAI `user` field).
+* `llm_content_risk_level`: Content risk level reported by content moderation.
+
+When `logging.summaries` is enabled, these variables are also emitted in the `llm_summary` log object (using the names without the `llm_` prefix), so logger plugins can consume them without additional configuration.
 
 In addition, the following standard nginx upstream variables are automatically populated when `ai-proxy` sends requests via cosocket transport:
 
@@ -2100,7 +2191,7 @@ Update the access log format in your configuration file to include additional LL
 ```yaml title="conf/config.yaml"
 nginx_config:
   http:
-    access_log_format: "$remote_addr - $remote_user [$time_local] $http_host \"$request_line\" $status $body_bytes_sent $request_time \"$http_referer\" \"$http_user_agent\" $upstream_addr $upstream_status $upstream_response_time \"$upstream_scheme://$upstream_host$upstream_uri\" \"$apisix_request_id\" \"$request_type\" \"$llm_time_to_first_token\" \"$llm_model\" \"$request_llm_model\"  \"$llm_prompt_tokens\" \"$llm_completion_tokens\""
+    access_log_format: "$remote_addr - $remote_user [$time_local] $http_host \"$request_line\" $status $body_bytes_sent $request_time \"$http_referer\" \"$http_user_agent\" $upstream_addr $upstream_status $apisix_upstream_response_time \"$upstream_scheme://$upstream_host$upstream_uri\" \"$apisix_request_id\" \"$request_type\" \"$llm_time_to_first_token\" \"$llm_model\" \"$request_llm_model\"  \"$llm_prompt_tokens\" \"$llm_completion_tokens\""
 ```
 
 Reload APISIX for configuration changes to take effect.

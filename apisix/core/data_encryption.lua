@@ -29,6 +29,8 @@ local ffi               = require("ffi")
 local C                 = ffi.C
 local ngx_encode_base64 = ngx.encode_base64
 local ngx_decode_base64 = ngx.decode_base64
+local str_byte          = string.byte
+local str_sub           = string.sub
 local type              = type
 local ipairs            = ipairs
 local assert            = assert
@@ -42,8 +44,19 @@ void ERR_clear_error(void);
 local _M = {}
 
 
---- Build a table of AES-128-CBC ciphers from a keyring, each using the key
--- itself as the IV.
+-- A value written as MARKER followed by the `encrypt` output is ciphertext
+-- wherever it appears, whatever the `encrypt_fields` of the reader.
+local MARKER = "$ENC$v1$"
+local MARKER_LEN = #MARKER
+local MARKER_FIRST_BYTE = str_byte(MARKER, 1)
+_M.MARKER = MARKER
+
+
+--- Build a table of AES-CBC ciphers from a keyring, each using the key itself
+-- as the IV: a 16-byte key selects AES-128, a 32-byte key selects AES-256.
+-- The CLI schema rejects any other length at startup; a key that still reaches
+-- us with an unsupported length is dropped, so log it loudly -- an empty
+-- keyring makes `_M.encrypt` fall back to storing the value in clear text.
 function _M.init_iv_tbl(ivs)
     local iv_tbl = tbl.new(2, 0)
     if type(ivs) == "string" then
@@ -52,7 +65,14 @@ function _M.init_iv_tbl(ivs)
 
     if type(ivs) == "table" then
         for _, iv in ipairs(ivs) do
-            tbl.insert(iv_tbl, assert(aes:new(iv, nil, aes.cipher(128, "cbc"), {iv = iv})))
+            if #iv == 32 then
+                tbl.insert(iv_tbl, assert(aes:new(iv, nil, aes.cipher(256, "cbc"), {iv = iv})))
+            elseif #iv == 16 then
+                tbl.insert(iv_tbl, assert(aes:new(iv, nil, aes.cipher(128, "cbc"), {iv = iv})))
+            else
+                log.error("ignored data_encryption keyring entry: expected a 16 byte ",
+                          "(AES-128) or 32 byte (AES-256) key, got ", #iv, " bytes")
+            end
         end
     end
 
@@ -145,6 +165,43 @@ function _M.decrypt(value, subject)
     end
 
     return _M.aes_cbc_decrypt(keyring, value, subject)
+end
+
+
+--- Whether `value` is a string carrying the marker.
+function _M.has_marker(value)
+    return type(value) == "string" and str_byte(value, 1) == MARKER_FIRST_BYTE
+           and str_sub(value, 1, MARKER_LEN) == MARKER
+end
+
+
+--- Encrypt `value` like `_M.encrypt` and prepend the marker. Returns `value`
+-- unchanged when no keyring is configured or the encryption fails.
+function _M.encrypt_with_marker(value)
+    local keyring = get_keyring()
+    if #keyring == 0 then
+        return value
+    end
+
+    local encrypted, err = _M.aes_cbc_encrypt(keyring, value)
+    if not encrypted then
+        log.error("failed to encrypt the data: ", err)
+        return value
+    end
+
+    return MARKER .. encrypted
+end
+
+
+--- Decrypt a value carrying the marker. Unlike `_M.decrypt`, a missing keyring
+-- is an error: a marked value is never usable as it is.
+function _M.decrypt_marked(value)
+    local keyring = get_keyring()
+    if #keyring == 0 then
+        return nil, "no keyring configured"
+    end
+
+    return _M.aes_cbc_decrypt(keyring, str_sub(value, MARKER_LEN + 1))
 end
 
 

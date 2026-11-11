@@ -16,9 +16,11 @@
 --
 
 local jsonschema = require("jsonschema")
+local ipairs = ipairs
 local pairs = pairs
 local pcall = pcall
 local require = require
+local type = type
 local schema_def = require("apisix.schema_def")
 
 
@@ -65,6 +67,18 @@ local etcd_schema = {
         },
     },
     required = {"prefix", "host"}
+}
+
+-- a keyring entry is used both as the AES key and as its IV, so only the two
+-- key lengths AES-CBC accepts here are allowed: 16 bytes (AES-128) and 32
+-- bytes (AES-256). Any other length would be dropped by
+-- core.data_encryption.init_iv_tbl and silently leave the data unencrypted.
+local keyring_key_schema = {
+    type = "string",
+    anyOf = {
+        {minLength = 16, maxLength = 16},
+        {minLength = 32, maxLength = 32},
+    }
 }
 
 local config_schema = {
@@ -166,6 +180,9 @@ local config_schema = {
                                             tls = {
                                                 type = "boolean",
                                             },
+                                            tls_passthrough = {
+                                                type = "boolean",
+                                            },
                                             proxy_protocol = {
                                                 type = "boolean",
                                             },
@@ -246,17 +263,9 @@ local config_schema = {
                                 {
                                     type = "array",
                                     minItems = 1,
-                                    items = {
-                                        type = "string",
-                                        minLength = 16,
-                                        maxLength = 16
-                                    }
+                                    items = keyring_key_schema
                                 },
-                                {
-                                    type = "string",
-                                    minLength = 16,
-                                    maxLength = 16
-                                }
+                                keyring_key_schema
                             }
                         },
                     }
@@ -274,6 +283,20 @@ local config_schema = {
                     },
                     uniqueItems = true
                 },
+                max_post_args_readable_size = {
+                    type = "integer",
+                    minimum = 0,
+                    default = 64,
+                    description = "cap (in MB) on the request body read for post_arg.* "
+                                  .. "route matching; 0 disables the limit",
+                },
+                max_request_headers_readable = {
+                    type = "integer",
+                    minimum = 0,
+                    default = 100,
+                    description = "max number of request headers plugins can read; "
+                                  .. "0 disables the limit",
+                },
             }
         },
         nginx_config = {
@@ -284,6 +307,10 @@ local config_schema = {
                     minItems = 1,
                     items = {
                         type = "string",
+                        -- NUL can never be carried through the C environ and
+                        -- other control chars (newline etc.) have no sane
+                        -- config source; reject early with a clear error
+                        pattern = [[\A[^\x00-\x1f]*\z]],
                     }
                 }
             },
@@ -354,18 +381,25 @@ local config_schema = {
     required = {"apisix", "deployment"},
 }
 
+-- an admin key is compared with the request header as a string. A key left
+-- empty in YAML (`key:`) is loaded as lyaml.null, an empty table: it matches
+-- no request, but it has always been accepted (a template that leaves the
+-- viewer key empty renders it), so it stays valid.
+local admin_api_key_schema = {
+    type = {"string", "object"},
+    maxProperties = 0,
+}
+
 local admin_schema = {
     type = "object",
     properties = {
         admin_key = {
             type = "array",
-            properties = {
-                items = {
-                    properties = {
-                        name = {type = "string"},
-                        key = {type = "string"},
-                        role = {type = "string"},
-                    }
+            items = {
+                properties = {
+                    -- only the key is checked: it is the field compared with
+                    -- the request, and other fields have never been checked
+                    key = admin_api_key_schema,
                 }
             }
         },
@@ -434,6 +468,118 @@ local deployment_schema = {
         required = {"role_data_plane"}
     }
 }
+
+
+local alternative_keywords = {"anyOf", "oneOf"}
+
+
+-- returns the schema that `node` applies to the property or the array element
+-- `key` of a value, or nil if `node` does not describe it
+local function child_schema(node, key)
+    local child
+    if type(key) == "number" then
+        child = node.items
+    elseif node.properties then
+        child = node.properties[key]
+    end
+
+    if child then
+        return child
+    end
+
+    -- e.g. apisix.data_encryption.keyring, which is either a list or one key.
+    -- When several alternatives describe the key, all of them apply.
+    local children
+    for _, keyword in ipairs(alternative_keywords) do
+        for _, alternative in ipairs(node[keyword] or {}) do
+            child = child_schema(alternative, key)
+            if child then
+                children = children or {}
+                children[#children + 1] = child
+            end
+        end
+    end
+
+    if children and #children > 1 then
+        return {anyOf = children}
+    end
+
+    return children and children[1]
+end
+
+
+local function collect_types(node, types)
+    local node_type = node.type
+    if type(node_type) == "string" then
+        types[node_type] = true
+    elseif type(node_type) == "table" then
+        for _, name in ipairs(node_type) do
+            types[name] = true
+        end
+    end
+
+    for _, keyword in ipairs(alternative_keywords) do
+        for _, alternative in ipairs(node[keyword] or {}) do
+            collect_types(alternative, types)
+        end
+    end
+
+    return types
+end
+
+
+-- whether `node` accepts a string but neither a number nor a boolean
+local function expects_string(node)
+    local types = collect_types(node, {})
+    return types.string and not (types.number or types.integer or types.boolean)
+end
+
+
+local function schema_at(node, path, first)
+    for i = first, #path do
+        node = child_schema(node, path[i])
+        if not node then
+            return nil
+        end
+    end
+
+    return node
+end
+
+
+-- Whether the value at `path`, the list of keys that lead to it from the top
+-- of config.yaml, can only be a string. When a `${{VAR}}` value looks like a
+-- number or a boolean, the CLI converts it unless this returns true, so that
+-- APISIX_ADMIN_KEY=123456 stays the string "123456".
+function _M.is_string_field(path)
+    local node = schema_at(config_schema, path, 1)
+    if node and expects_string(node) then
+        return true
+    end
+
+    if path[1] == "deployment" then
+        -- the role may itself come from a variable, so it is not known yet;
+        -- the roles share the schemas of the sections they have in common
+        for _, role_schema in pairs(deployment_schema) do
+            node = schema_at(role_schema, path, 2)
+            if node and expects_string(node) then
+                return true
+            end
+        end
+
+    elseif path[1] == "discovery" and type(path[2]) == "string" then
+        local ok, discovery_schema = pcall(require,
+                                           "apisix.discovery." .. path[2] .. ".schema")
+        if ok then
+            node = schema_at(discovery_schema, path, 3)
+            if node and expects_string(node) then
+                return true
+            end
+        end
+    end
+
+    return false
+end
 
 
 function _M.validate(yaml_conf)

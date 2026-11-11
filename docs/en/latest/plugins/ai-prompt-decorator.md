@@ -38,10 +38,15 @@ import TabItem from '@theme/TabItem';
 
 The `ai-prompt-decorator` Plugin modifies user input prompts by prefixing and appending pre-engineered prompts to set contexts in content generation. This practice helps the model operate within desired guidelines during interactions.
 
+The Plugin decorates Chat Completions, Responses API, Anthropic Messages, and Bedrock Converse requests using each protocol's native prompt structure. For Responses, content from `prepend` is added to `instructions`, and content from `append` is added to `input`. The Plugin leaves Embeddings and passthrough requests unchanged because they have no prompt roles to prepend or append.
+
+See [request protocol detection](./ai-proxy.md#request-protocol-detection) for the detection order and URI requirements.
+
 ## Plugin Attributes
 
 | Name | Type | Required | Default | Valid values | Description |
 | --- | --- | --- | --- | --- | --- |
+| `max_req_body_size` | integer | False | 67108864 | >= 1 | Maximum request body size in bytes buffered into memory. Requests with a larger body are rejected. |
 | `prepend` | array | Conditionally\* | | | An array of prompt objects to be prepended. |
 | `prepend.role` | string | True | | [`system`, `user`, `assistant`] | Role of the message. |
 | `prepend.content` | string | True | | length >= 1 | Content of the message (prompt). |
@@ -53,10 +58,10 @@ The `ai-prompt-decorator` Plugin modifies user input prompts by prefixing and ap
 
 ## Examples
 
-The following examples will be using OpenAI as the Upstream service provider. Before proceeding, create an [OpenAI account](https://openai.com) and an [API key](https://openai.com/blog/openai-api). You can optionally save the key to an environment variable as such:
+The following examples will be using OpenAI as the Upstream service provider. Before proceeding, create an [OpenAI account](https://openai.com) and an [API key](https://openai.com/blog/openai-api). Save the key to an environment variable, replacing the placeholder with your API key:
 
 ```shell
-export OPENAI_API_KEY=<YOUR_OPENAI_API_KEY>
+export OPENAI_API_KEY='<YOUR_OPENAI_API_KEY>'
 ```
 
 If you are working with other LLM providers, please refer to the provider's documentation to obtain an API key.

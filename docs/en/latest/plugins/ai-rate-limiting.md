@@ -47,14 +47,37 @@ The `ai-rate-limiting` Plugin enforces token-based rate limiting for requests se
 | limit | integer | False | | >0 | The maximum number of tokens allowed within a given time interval. At least one of `limit` and `instances.limit` should be configured. Required if `rules` is not configured. |
 | time_window | integer | False | | >0 | The time interval corresponding to the rate limiting `limit` in seconds. At least one of `time_window` and `instances.time_window` should be configured. Required if `rules` is not configured. |
 | show_limit_quota_header | boolean | False | true | | If true, includes rate limiting response headers. When `rules` is not set, the headers are `X-AI-RateLimit-Limit-*`, `X-AI-RateLimit-Remaining-*`, and `X-AI-RateLimit-Reset-*`, where `*` is the instance name. When `rules` is set, see `rules.header_prefix` for details. |
-| limit_strategy | string | False | total_tokens | [`total_tokens`, `prompt_tokens`, `completion_tokens`, `expression`] | Type of token to apply rate limiting. `total_tokens` is the sum of `prompt_tokens` and `completion_tokens`. When set to `expression`, the `cost_expr` field is used to dynamically calculate token cost. |
-| cost_expr | string | False | | | Lua arithmetic expression for dynamic token cost calculation. Variables are injected from the LLM API raw usage response fields. Missing variables default to 0. Only valid when `limit_strategy` is `expression`. Example: `input_tokens + cache_creation_input_tokens + output_tokens`. |
+| limit_strategy | string | False | total_tokens | [`total_tokens`, `prompt_tokens`, `completion_tokens`, `expression`] | Type of token to apply rate limiting. `total_tokens` is the sum of `prompt_tokens` and `completion_tokens`. `prompt_tokens` includes tokens read from and written to the prompt cache, for the Anthropic Messages API as well as OpenAI-compatible APIs. When set to `expression`, the `cost_expr` field is used to dynamically calculate token cost. |
+| cost_expr | string | False | | | Lua arithmetic expression for dynamic token cost calculation. Variables are injected from the LLM API raw usage response fields. Nested fields are referenced by joining the parent and child keys with `__`, e.g. `input_tokens_details__cached_tokens` for `input_tokens_details.cached_tokens`. Arrays are skipped. Missing variables default to 0. Only valid when `limit_strategy` is `expression`. Example: `input_tokens + cache_creation_input_tokens + output_tokens`. |
 | instances | array[object] | False | | | LLM instance rate limiting configurations. |
 | instances.name | string | True | | | Name of the LLM service instance. |
 | instances.limit | integer | True | | >0 | The maximum number of tokens allowed within a given time interval for an instance. |
 | instances.time_window | integer | True | | >0 | The time interval corresponding to the rate limiting `limit` in seconds for an instance. |
 | rejected_code | integer | False | 503 | [200, 599] | The HTTP status code returned when a request exceeding the quota is rejected. |
 | rejected_msg | string | False | | | The response body returned when a request exceeding the quota is rejected. |
+| policy | string | False | local | [`local`, `redis`, `redis-cluster`, `redis-sentinel`] | The policy for the rate limiting counter. If it is `local`, the counter is stored in local memory. If it is `redis`, the counter is stored on a Redis instance. If it is `redis-cluster`, the counter is stored in a Redis cluster. If it is `redis-sentinel`, the counter is stored on the Redis master discovered through Sentinel. Use a Redis-based policy to share token counters across gateway nodes in a distributed deployment. |
+| allow_degradation | boolean | False | false | | If true, allow APISIX to continue serving requests without the Plugin when the Redis backend is unavailable. |
+| redis_host | string | False | | | The address of the Redis node. Required when `policy` is `redis`. |
+| redis_port | integer | False | 6379 | [1,...] | The port of the Redis node when `policy` is `redis`. |
+| redis_username | string | False | | | The username for Redis if Redis ACL is used. If you use the legacy authentication method `requirepass`, configure only the `redis_password`. Used when `policy` is `redis` or `redis-sentinel`. |
+| redis_password | string | False | | | The password of the Redis node when `policy` is `redis`, `redis-cluster`, or `redis-sentinel`. |
+| redis_database | integer | False | 0 | >= 0 | The database number in Redis when `policy` is `redis` or `redis-sentinel`. |
+| redis_timeout | integer | False | 1000 | [1,...] | The Redis timeout value in milliseconds when `policy` is `redis` or `redis-cluster`. |
+| redis_ssl | boolean | False | false | | If true, use SSL to connect to Redis when `policy` is `redis`. |
+| redis_ssl_verify | boolean | False | false | | If true, verify the server SSL certificate when `policy` is `redis`. |
+| redis_server_name | string | False | | | TLS SNI when `policy` is `redis` and `redis_ssl` is true. Defaults to `redis_host`. When `redis_ssl_verify` is true the certificate must also match this name, so set it when `redis_host` is an alias the certificate does not cover. |
+| redis_cluster_nodes | array[string] | False | | | The list of Redis cluster nodes with at least one address. Required when `policy` is `redis-cluster`. |
+| redis_cluster_name | string | False | | | The name of the Redis cluster. Required when `policy` is `redis-cluster`. |
+| redis_cluster_ssl | boolean | False | false | | If true, use SSL to connect to Redis when `policy` is `redis-cluster`. |
+| redis_cluster_ssl_verify | boolean | False | false | | If true, verify the server SSL certificate when `policy` is `redis-cluster`. |
+| redis_sentinels | array[object] | False | | | The list of Sentinel nodes. Required when `policy` is `redis-sentinel`. Each item must contain `host` and `port`. |
+| redis_master_name | string | False | | | The Redis master name monitored by Sentinel. Required when `policy` is `redis-sentinel`. |
+| sentinel_username | string | False | | | The username for Sentinel when `policy` is `redis-sentinel`. |
+| sentinel_password | string | False | | | The password for Sentinel when `policy` is `redis-sentinel`. |
+| redis_role | string | False | master | [`master`, `slave`] | The Redis role selected through Sentinel when `policy` is `redis-sentinel`. |
+| redis_connect_timeout | integer | False | 1000 | [1,...] | The Redis connection timeout in milliseconds when `policy` is `redis-sentinel`. |
+| redis_read_timeout | integer | False | 1000 | [1,...] | The Redis read timeout in milliseconds when `policy` is `redis-sentinel`. |
+| redis_keepalive_timeout | integer | False | 60000 | [1,...] | The Redis keepalive timeout in milliseconds when `policy` is `redis-sentinel`. |
 | rules | array[object] | False | | | An array of rate-limiting rules that are applied sequentially. If configured, this takes precedence over `limit` and `time_window`. |
 | rules.count | integer or string | True | | >0 or variable expression | The maximum number of tokens allowed within a given time interval. Can be a static integer or a variable expression like `$http_custom_limit`. |
 | rules.time_window | integer or string | True | | >0 or variable expression | The time interval corresponding to the rate limiting `count` in seconds. Can be a static integer or a variable expression. |
@@ -65,6 +88,8 @@ The `ai-rate-limiting` Plugin enforces token-based rate limiting for requests se
 
 The examples below demonstrate how you can configure `ai-rate-limiting` for different scenarios.
 
+The Plugin checks the remaining quota before forwarding a request and charges the tokens reported by the LLM after the response. A request can therefore consume more tokens than the remaining quota; later requests are rejected until the window resets. Quota headers on a successful response show the remaining quota before that response's token usage is charged.
+
 :::note
 
 You can fetch the `admin_key` from `config.yaml` and save to an environment variable with the following command:
@@ -74,6 +99,15 @@ admin_key=$(yq '.deployment.admin.admin_key[0].key' conf/config.yaml | sed 's/"/
 ```
 
 :::
+
+Before running the examples, obtain API keys for the providers you use and replace the placeholders below:
+
+```shell
+export OPENAI_API_KEY='<your-openai-api-key>'
+export DEEPSEEK_API_KEY='<your-deepseek-api-key>'
+```
+
+Replace `your-openai-model` in the configurations with a chat completion model available to your OpenAI account.
 
 ### Apply Rate Limiting with `ai-proxy`
 
@@ -100,7 +134,7 @@ curl "http://127.0.0.1:9180/apisix/admin/routes" -X PUT \
           }
         },
         "options": {
-          "model": "gpt-35-turbo-instruct",
+          "model": "your-openai-model",
           "max_tokens": 512,
           "temperature": 1.0
         }
@@ -133,7 +167,7 @@ services:
               header:
                 Authorization: "Bearer ${OPENAI_API_KEY}"
             options:
-              model: gpt-35-turbo-instruct
+              model: your-openai-model
               max_tokens: 512
               temperature: 1.0
           ai-rate-limiting:
@@ -169,7 +203,7 @@ spec:
           header:
             Authorization: "Bearer your-api-key"
         options:
-          model: gpt-35-turbo-instruct
+          model: your-openai-model
           max_tokens: 512
           temperature: 1.0
     - name: ai-rate-limiting
@@ -227,7 +261,7 @@ spec:
               header:
                 Authorization: "Bearer your-api-key"
             options:
-              model: gpt-35-turbo-instruct
+              model: your-openai-model
               max_tokens: 512
               temperature: 1.0
         - name: ai-rate-limiting
@@ -268,7 +302,7 @@ You should receive a response similar to the following:
 ```json
 {
   ...
-  "model": "deepseek-chat",
+  "model": "your-openai-model",
   "choices": [
     {
       "index": 0,
@@ -285,6 +319,63 @@ You should receive a response similar to the following:
 ```
 
 If the rate limiting quota of 300 prompt tokens has been consumed in a 30-second window, all additional requests will be rejected.
+
+### Share Rate Limiting Counters Across Nodes with Redis
+
+By default, the `local` policy keeps token counters in each node's shared memory, so counters are not shared across a multi-node deployment and the effective quota scales with the number of nodes. Set `policy` to `redis`, `redis-cluster`, or `redis-sentinel` to centralize counters and enforce a single quota across all nodes.
+
+The following example demonstrates how you can use the `redis` policy to share the rate limiting counter across gateway nodes.
+
+Create a Route as such and update with your LLM providers, models, API keys, endpoints, and Redis address, if applicable:
+
+```shell
+curl "http://127.0.0.1:9180/apisix/admin/routes" -X PUT \
+  -H "X-API-KEY: ${admin_key}" \
+  -d '{
+    "id": "ai-rate-limiting-route",
+    "uri": "/anything",
+    "methods": ["POST"],
+    "plugins": {
+      "ai-proxy": {
+        "provider": "openai",
+        "auth": {
+          "header": {
+            "Authorization": "Bearer '"$OPENAI_API_KEY"'"
+          }
+        },
+        "options": {
+          "model": "your-openai-model",
+          "max_tokens": 512,
+          "temperature": 1.0
+        }
+      },
+      "ai-rate-limiting": {
+        "limit": 300,
+        "time_window": 30,
+        "limit_strategy": "total_tokens",
+        "policy": "redis",
+        "redis_host": "127.0.0.1",
+        "redis_port": 6379,
+        "redis_database": 1
+      }
+    }
+  }'
+```
+
+Send a POST request to the Route with a sample question in the request body from any node:
+
+```shell
+curl "http://127.0.0.1:9080/anything" -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [
+      { "role": "system", "content": "You are a mathematician" },
+      { "role": "user", "content": "What is 1+1?" }
+    ]
+  }'
+```
+
+The consumed tokens are counted against the shared Redis counter. Once the quota of 300 tokens is consumed in a 30-second window, additional requests are rejected on every node.
 
 ### Rate Limit One Instance Among Multiple
 
@@ -304,6 +395,7 @@ curl "http://127.0.0.1:9180/apisix/admin/routes" -X PUT \
     "methods": ["POST"],
     "plugins": {
       "ai-proxy-multi": {
+        "fallback_strategy": ["rate_limiting"],
         "instances": [
           {
             "name": "deepseek-instance-1",
@@ -361,6 +453,7 @@ services:
           - POST
         plugins:
           ai-proxy-multi:
+            fallback_strategy: ["rate_limiting"]
             instances:
               - name: deepseek-instance-1
                 provider: deepseek
@@ -408,6 +501,7 @@ spec:
   plugins:
     - name: ai-proxy-multi
       config:
+        fallback_strategy: ["rate_limiting"]
         instances:
           - name: deepseek-instance-1
             provider: deepseek
@@ -477,6 +571,7 @@ spec:
         - name: ai-proxy-multi
           enable: true
           config:
+            fallback_strategy: ["rate_limiting"]
             instances:
               - name: deepseek-instance-1
                 provider: deepseek
@@ -554,11 +649,11 @@ If `deepseek-instance-1` instance rate limiting quota of 100 tokens has been con
 
 ### Apply the Same Quota to All Instances
 
-The following example demonstrates how you can apply the same rate limiting quota to all LLM upstream instances in `ai-rate-limiting`.
+The following example configures a shared token quota across all LLM upstream instances in `ai-rate-limiting`. The top-level `limit` and `time_window` use a shared counter. To give instances separate quotas, configure `instances` instead.
 
 For demonstration and easier differentiation, you will be configuring one OpenAI instance and one DeepSeek instance as the upstream LLM services.
 
-Create a Route which applies a rate limiting quota of 100 total tokens for all instances within a 60-second window, and update with your LLM providers, models, API keys, and endpoints, if applicable:
+Create a Route which applies a rate limiting quota of 100 total tokens shared by both instances within a 60-second window, and update with your LLM providers, models, API keys, and endpoints, if applicable:
 
 <Tabs groupId="api">
 <TabItem value="admin-api" label="Admin API">
@@ -828,55 +923,9 @@ You should receive a response from either LLM instance, similar to the following
 }
 ```
 
-Since the `total_tokens` value exceeds the configured quota of `100`, the next request within the 60-second window is expected to be forwarded to the other instance.
+The example response consumes 279 total tokens, exceeding the shared quota of 100. The next request within the same 60-second window is rejected regardless of which instance is selected. If your response uses fewer tokens, repeat the request until the shared quota is exhausted.
 
-Within the same 60-second window, send another POST request to the Route:
-
-```shell
-curl -i "http://127.0.0.1:9080/anything" -X POST \
-  -H "Content-Type: application/json" \
-  -d '{
-    "messages": [
-      { "role": "system", "content": "You are a mathematician" },
-      { "role": "user", "content": "Explain Newtons laws" }
-    ]
-  }'
-```
-
-You should receive a response from the other LLM instance, similar to the following:
-
-```json
-{
-  ...
-  "model": "deepseek-chat",
-  "choices": [
-    {
-      "index": 0,
-      "message": {
-        "role": "assistant",
-        "content": "Sure! Newton's laws of motion are three fundamental principles that describe the relationship between the motion of an object and the forces acting on it. They were formulated by Sir Isaac Newton in the late 17th century and are foundational to classical mechanics. Here's an explanation of each law:\n\n---\n\n### **1. Newton's First Law (Law of Inertia)**\n- **Statement**: An object will remain at rest or in uniform motion in a straight line unless acted upon by an external force.\n- **What it means**: This law introduces the concept of **inertia**, which is the tendency of an object to resist changes in its state of motion. If no net force acts on an object, its velocity (speed and direction) will not change.\n- **Example**: A book lying on a table will stay at rest unless you push it. Similarly, a hockey puck sliding on ice will keep moving at a constant speed unless friction or another force slows it down.\n\n---\n\n### **2. Newton's Second Law (Law of Acceleration)**\n- **Statement**: The acceleration of an object is directly proportional to the net force acting on it and inversely proportional to its mass. Mathematically, this is expressed as:\n  \\[\n  F = ma\n  \\]\n"
-      },
-      "logprobs": null,
-      "finish_reason": "length"
-    }
-  ],
-  "usage": {
-    "prompt_tokens": 13,
-    "completion_tokens": 256,
-    "total_tokens": 269,
-    "prompt_tokens_details": {
-      "cached_tokens": 0
-    },
-    "prompt_cache_hit_tokens": 0,
-    "prompt_cache_miss_tokens": 13
-  },
-  "system_fingerprint": "fp_3a5770e1b4_prod0225"
-}
-```
-
-Since the `total_tokens` value exceeds the configured quota of `100`, the next request within the 60-second window is expected to be rejected.
-
-Within the same 60-second window, send a third POST request to the Route:
+Within the same window, send another POST request to the Route:
 
 ```shell
 curl -i "http://127.0.0.1:9080/anything" -X POST \
@@ -889,16 +938,14 @@ curl -i "http://127.0.0.1:9080/anything" -X POST \
   }'
 ```
 
-You should receive an `HTTP 429 Too Many Requests` response and observe the following headers:
+You should receive an `HTTP/1.1 429 Too Many Requests` response. The quota headers use the name of the selected instance, but the remaining quota is shared. For example, if `openai-instance` is selected:
 
 ```text
 X-AI-RateLimit-Limit-openai-instance: 100
 X-AI-RateLimit-Remaining-openai-instance: 0
-X-AI-RateLimit-Reset-openai-instance: 0
-X-AI-RateLimit-Limit-deepseek-instance: 100
-X-AI-RateLimit-Remaining-deepseek-instance: 0
-X-AI-RateLimit-Reset-deepseek-instance: 0
 ```
+
+The reset header reports the remaining time until the window resets. Selecting `deepseek-instance` does not provide a new quota.
 
 ### Configure Instance Priority and Rate Limiting
 
@@ -2033,7 +2080,7 @@ These requests should match the first rule with a default token count of 500. Yo
 HTTP/1.1 200 OK
 ...
 X-AI-1-RateLimit-Limit: 500
-X-AI-1-RateLimit-Remaining: 499
+X-AI-1-RateLimit-Remaining: 500
 X-AI-1-RateLimit-Reset: 60
 
 HTTP/1.1 429 Too Many Requests
@@ -2064,7 +2111,7 @@ These requests should match the first rule with a custom token count of 10. You 
 HTTP/1.1 200 OK
 ...
 X-AI-1-RateLimit-Limit: 10
-X-AI-1-RateLimit-Remaining: 9
+X-AI-1-RateLimit-Remaining: 10
 X-AI-1-RateLimit-Reset: 60
 
 HTTP/1.1 429 Too Many Requests
@@ -2094,7 +2141,7 @@ These requests should match the second rule with a token count of 50. You should
 HTTP/1.1 200 OK
 ...
 X-AI-2-RateLimit-Limit: 50
-X-AI-2-RateLimit-Remaining: 49
+X-AI-2-RateLimit-Remaining: 50
 X-AI-2-RateLimit-Reset: 60
 
 HTTP/1.1 429 Too Many Requests

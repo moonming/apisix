@@ -51,7 +51,7 @@ This Plugin provides the ability to push metrics as a batch to the external Data
 | retry_delay    | integer | False    | 1       | [0,...]        | Time interval in seconds to retry sending the batch if the previous attempt failed.                                      |
 | max_retry_count | integer | False   | 0       | [0,...]        | Maximum number of unsuccessful retries before dropping the metric entries.                                               |
 
-This Plugin supports using batch processors to aggregate and process metric data in a batch. This avoids the need to submit data too frequently. The batch processor submits data every `5` seconds or when the data in the queue reaches `1000`. See [Batch Processor](../batch-processor.md#configuration) for more information or to customize the configuration.
+This Plugin supports using batch processors to aggregate and process metric data in a batch. This avoids the need to submit data too frequently. The batch processor submits data every `5` seconds or when the data in the queue reaches `1000`. See [Batch Processor](../batch-processor.md#configurations) for more information or to customize the configuration.
 
 ## Plugin Metadata
 
@@ -63,6 +63,7 @@ You can configure the Plugin through Plugin metadata.
 | port          | integer | False    | 8125                | DogStatsD server port.                                                                                                                    |
 | namespace     | string  | False    | "apisix"            | Prefix for all custom metrics sent by the APISIX agent. Useful for finding entities for metrics graph. For example, `apisix.request.counter`. |
 | constant_tags | array   | False    | [ "source:apisix" ] | Static tags to embed into generated metrics. Useful for grouping metrics over certain signals. See [defining tags](https://docs.datadoghq.com/getting_started/tagging/#defining-tags) for more. |
+| max_pending_entries | integer | False | 8192 | Maximum number of entries waiting to be processed. New entries are discarded while the backlog exceeds this, which stops a slow or unreachable log server from growing the worker's memory without bound. See [Batch Processor](../batch-processor.md#limiting-the-backlog) for the memory a backlog of this size costs. |
 
 ## Metrics
 

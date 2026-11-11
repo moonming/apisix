@@ -42,6 +42,7 @@ With this Plugin enabled, APISIX accepts an HTTP request from the client, transc
 
 | Name                 | Type                                                   | Required | Default                                                                     | Description                                                                                                                                                                                                               |
 |----------------------|--------------------------------------------------------|----------|-----------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| max_resp_body_size | integer | False | 67108864 | >= 1 | Maximum response body size in bytes buffered into memory for transcoding. Larger responses are truncated. |
 | proto_id             | string/integer                                         | True     |                                                                             | ID of the proto resource, which contains the protocol buffer definitions.                                                                                                                                                 |
 | service              | string                                                 | True     |                                                                             | Name of the gRPC service.                                                                                                                                                                                                 |
 | method               | string                                                 | True     |                                                                             | Method name of the gRPC service.                                                                                                                                                                                          |
@@ -73,18 +74,21 @@ admin_key=$(yq '.deployment.admin.admin_key[0].key' conf/config.yaml | sed 's/"/
 
 :::
 
-To follow along the examples, start an [example gRPC server](https://github.com/api7/grpc_server_example):
+The examples assume APISIX is running in the `apisix-quickstart-net` Docker network created by the quickstart script. Start the [example gRPC server](https://github.com/api7/grpc_server_example) in that network. The image digest pins the tested contents of tag `1.0.2`:
 
 ```shell
-docker run -d \
-  --name grpc-example-server \
+docker rm -f quickstart-grpc-example 2>/dev/null || true
+
+docker run -d --rm \
+  --name quickstart-grpc-example \
+  --network apisix-quickstart-net \
   -p 50051:50051 \
-  api7/grpc-server-example:1.0.2
+  api7/grpc-server-example:1.0.2@sha256:9d822f5957724d2b9f668e81d5cd221e030a7155ac5558b56f1a07cb9e8cbbce
 ```
 
-### Transform between HTTP and gRPC Requests
+### Transform Between HTTP and gRPC Requests
 
-The following example demonstrates how to configure protobuf in APISIX and transform between HTTP and gRPC requests using the `grpc-transcode` Plugin.
+This example stores a Protocol Buffer definition in APISIX and uses it to transform HTTP requests and gRPC responses with the `grpc-transcode` Plugin.
 
 Create a proto resource to store the protobuf:
 
@@ -120,7 +124,7 @@ curl "http://127.0.0.1:9180/apisix/admin/routes/grpc-transcode-route" -H "X-API-
     "scheme": "grpc",
     "type": "roundrobin",
     "nodes": {
-      "127.0.0.1:50051": 1
+      "quickstart-grpc-example:50051": 1
     }
   }
 }'
@@ -171,7 +175,7 @@ Convert the `.pb` file from binary to base64 and configure it in APISIX:
 ```shell
 curl "http://127.0.0.1:9180/apisix/admin/protos/echo-proto" -H "X-API-KEY: $admin_key" -X PUT -d '
 {
-  "content" : "'"$(base64 -w0 /path/to/echo_proto.pb)"'"
+  "content" : "'"$(base64 < /path/to/echo_proto.pb | tr -d '\r\n')"'"
 }'
 ```
 
@@ -193,7 +197,7 @@ curl "http://127.0.0.1:9180/apisix/admin/routes/grpc-transcode-route" -H "X-API-
     "scheme": "grpc",
     "type": "roundrobin",
     "nodes": {
-      "127.0.0.1:50051": 1
+      "quickstart-grpc-example:50051": 1
     }
   }
 }'
@@ -254,7 +258,7 @@ curl "http://127.0.0.1:9180/apisix/admin/routes/grpc-transcode-route" -H "X-API-
     "scheme": "grpc",
     "type": "roundrobin",
     "nodes": {
-      "127.0.0.1:50051": 1
+      "quickstart-grpc-example:50051": 1
     }
   }
 }'
@@ -329,7 +333,7 @@ curl "http://127.0.0.1:9180/apisix/admin/routes/grpc-transcode-route" -H "X-API-
     "scheme": "grpc",
     "type": "roundrobin",
     "nodes": {
-      "127.0.0.1:50051": 1
+      "quickstart-grpc-example:50051": 1
     }
   }
 }'
@@ -398,7 +402,7 @@ curl "http://127.0.0.1:9180/apisix/admin/routes/grpc-transcode-route" -H "X-API-
     "scheme": "grpc",
     "type": "roundrobin",
     "nodes": {
-      "127.0.0.1:50051": 1
+      "quickstart-grpc-example:50051": 1
     }
   }
 }'
@@ -434,7 +438,7 @@ curl "http://127.0.0.1:9180/apisix/admin/routes/grpc-transcode-route" -H "X-API-
     "scheme": "grpc",
     "type": "roundrobin",
     "nodes": {
-      "127.0.0.1:50051": 1
+      "quickstart-grpc-example:50051": 1
     }
   }
 }'

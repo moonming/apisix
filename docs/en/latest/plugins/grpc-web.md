@@ -42,6 +42,7 @@ The `grpc-web` Plugin translates gRPC-Web requests into native gRPC calls and fo
 
 | Name                 | Type    | Required | Default                                   | Description                                                                                             |
 |----------------------|---------|----------|-------------------------------------------|---------------------------------------------------------------------------------------------------------|
+| max_req_body_size | integer | False | 67108864 | >= 1 | Maximum request body size in bytes buffered into memory. Requests with a larger body are rejected. |
 | cors_allow_headers   | string  | False    | `content-type,x-grpc-web,x-user-agent`   | Comma-separated list of request headers allowed for cross-origin requests.                              |
 
 ## Request Handling
@@ -105,6 +106,8 @@ docker run -d \
   -p 9000:9000 \
   moul/grpcbin
 ```
+
+The Route below uses `127.0.0.1:9000` as the upstream address and assumes APISIX runs on the Docker host. If APISIX runs in a container, connect both containers to the same [user-defined Docker network](https://docs.docker.com/engine/network/drivers/bridge/) and use `grpcbin:9000` in the Route instead. Inside the APISIX container, `127.0.0.1` refers to APISIX itself; Docker resolves `grpcbin` on the shared network.
 
 #### Generate gRPC-Web Client Code
 
