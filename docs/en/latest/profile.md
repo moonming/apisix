@@ -65,6 +65,8 @@ You should set these variables with `export`. If you do not export, APISIX will 
 
 Now when you start APISIX, it will listen on port `8132` and expose the Admin API on port `9232`.
 
+As with these ports, a value that looks like a number, or is `true` or `false`, is converted to a number or a boolean. A field that only accepts a string, such as `deployment.admin.admin_key[].key` or `deployment.etcd.password`, keeps the value as a string, so an Admin API key such as `123456` works as expected.
+
 To use default values if no environment variables are set, you can add it to your configuration file as shown below:
 
 ```yaml title="config.yaml"

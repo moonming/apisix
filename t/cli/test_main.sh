@@ -421,6 +421,79 @@ fi
 
 echo "passed: resolve variables as boolean"
 
+# a variable that looks like a number or a boolean stays a string where the
+# schema expects a string; admin_listen.port is still converted to an integer
+echo '
+deployment:
+    admin:
+        admin_listen:
+            port: ${{ADMIN_PORT}}
+        admin_key:
+            - name: admin
+              key: ${{ADMIN_KEY}}
+              role: admin
+            - name: viewer
+              key: ${{VIEWER_KEY}}
+              role: viewer
+' > conf/config.yaml
+
+ADMIN_PORT=9180 ADMIN_KEY=123456 VIEWER_KEY=true make init
+ADMIN_PORT=9180 ADMIN_KEY=123456 VIEWER_KEY=true make run
+
+admin_api_code() {
+    curl -o /dev/null -s -m 5 -w %{http_code} --retry 5 --retry-delay 1 --retry-connrefused \
+        -H "X-API-KEY: $1" http://127.0.0.1:9180/apisix/admin/routes
+}
+admin_code=$(admin_api_code 123456)
+viewer_code=$(admin_api_code true)
+wrong_code=$(admin_api_code 1234567)
+make stop
+
+if [ "$admin_code" != "200" ] || [ "$viewer_code" != "200" ] || [ "$wrong_code" != "401" ]; then
+    echo "failed: admin keys from variables should stay strings, got $admin_code for" \
+         "the admin key, $viewer_code for the viewer key and $wrong_code for a wrong key"
+    exit 1
+fi
+
+echo "passed: keep variables as strings for admin keys"
+
+echo '
+apisix:
+    data_encryption:
+        keyring:
+            - ${{KEYRING}}
+discovery:
+    nacos:
+        host:
+            - "http://127.0.0.1:8848"
+        secret_key: ${{NACOS_SECRET_KEY}}
+' > conf/config.yaml
+
+if ! KEYRING=1234567890123456 NACOS_SECRET_KEY=123456 make init > output.log 2>&1; then
+    cat output.log
+    echo "failed: numeric variables for string fields should stay strings"
+    exit 1
+fi
+
+echo "passed: keep variables as strings for string fields"
+
+echo '
+deployment:
+    admin:
+        admin_key:
+            - name: admin
+              key: 123456
+              role: admin
+' > conf/config.yaml
+
+out=$(make init 2>&1 || true)
+if ! echo "$out" | grep 'property "key" validation failed: wrong type: expected string, got number' > /dev/null; then
+    echo "failed: should reject an admin key written as a number"
+    exit 1
+fi
+
+echo "passed: reject an admin key written as a number"
+
 echo '
 nginx_config:
     envs:

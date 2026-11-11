@@ -16,9 +16,11 @@
 --
 
 local jsonschema = require("jsonschema")
+local ipairs = ipairs
 local pairs = pairs
 local pcall = pcall
 local require = require
+local type = type
 local schema_def = require("apisix.schema_def")
 
 
@@ -384,13 +386,11 @@ local admin_schema = {
     properties = {
         admin_key = {
             type = "array",
-            properties = {
-                items = {
-                    properties = {
-                        name = {type = "string"},
-                        key = {type = "string"},
-                        role = {type = "string"},
-                    }
+            items = {
+                properties = {
+                    name = {type = "string"},
+                    key = {type = "string"},
+                    role = {type = "string"},
                 }
             }
         },
@@ -459,6 +459,105 @@ local deployment_schema = {
         required = {"role_data_plane"}
     }
 }
+
+
+local alternative_keywords = {"anyOf", "oneOf"}
+
+
+-- returns the schema that `node` applies to the property or the array element
+-- `key` of a value, or nil if `node` does not describe it
+local function child_schema(node, key)
+    local child
+    if type(key) == "number" then
+        child = node.items
+    elseif node.properties then
+        child = node.properties[key]
+    end
+
+    if child then
+        return child
+    end
+
+    -- e.g. apisix.data_encryption.keyring, which is either a list or one key
+    for _, keyword in ipairs(alternative_keywords) do
+        for _, alternative in ipairs(node[keyword] or {}) do
+            child = child_schema(alternative, key)
+            if child then
+                return child
+            end
+        end
+    end
+
+    return nil
+end
+
+
+local function collect_types(node, types)
+    if type(node.type) == "string" then
+        types[node.type] = true
+    end
+
+    for _, keyword in ipairs(alternative_keywords) do
+        for _, alternative in ipairs(node[keyword] or {}) do
+            collect_types(alternative, types)
+        end
+    end
+
+    return types
+end
+
+
+local function only_accepts_string(node)
+    local types = collect_types(node, {})
+    return types.string and not (types.number or types.integer or types.boolean)
+end
+
+
+local function schema_at(node, path, first)
+    for i = first, #path do
+        node = child_schema(node, path[i])
+        if not node then
+            return nil
+        end
+    end
+
+    return node
+end
+
+
+-- Whether the value at `path`, the list of keys that lead to it from the top
+-- of config.yaml, can only be a string. When a `${{VAR}}` value looks like a
+-- number or a boolean, the CLI converts it unless this returns true, so that
+-- APISIX_ADMIN_KEY=123456 stays the string "123456".
+function _M.is_string_field(path)
+    local node = schema_at(config_schema, path, 1)
+    if node and only_accepts_string(node) then
+        return true
+    end
+
+    if path[1] == "deployment" then
+        -- the role may itself come from a variable, so it is not known yet;
+        -- the roles share the schemas of the sections they have in common
+        for _, role_schema in pairs(deployment_schema) do
+            node = schema_at(role_schema, path, 2)
+            if node and only_accepts_string(node) then
+                return true
+            end
+        end
+
+    elseif path[1] == "discovery" and type(path[2]) == "string" then
+        local ok, discovery_schema = pcall(require,
+                                           "apisix.discovery." .. path[2] .. ".schema")
+        if ok then
+            node = schema_at(discovery_schema, path, 3)
+            if node and only_accepts_string(node) then
+                return true
+            end
+        end
+    end
+
+    return false
+end
 
 
 function _M.validate(yaml_conf)

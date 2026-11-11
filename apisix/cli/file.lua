@@ -101,11 +101,17 @@ local function resolve_conf_var_in_text(text)
 end
 
 
-local function resolve_conf_var(conf)
+-- A substituted value that looks like a number or a boolean is converted to
+-- it, unless `is_string_field(path)` returns true for its place in `conf`.
+-- `path` is the list of keys from the top of `conf`, used by the recursion.
+local function resolve_conf_var(conf, is_string_field, path)
+    path = path or {}
+    local depth = #path + 1
     local renamed_keys
     for key, val in pairs(conf) do
+        path[depth] = key
         if type(val) == "table" then
-            local ok, err = resolve_conf_var(val)
+            local ok, err = resolve_conf_var(val, is_string_field, path)
             if not ok then
                 return nil, err
             end
@@ -117,7 +123,7 @@ local function resolve_conf_var(conf)
                 return nil, err
             end
 
-            if var_used then
+            if var_used and not (is_string_field and is_string_field(path)) then
                 if tonumber(new_val) ~= nil then
                     new_val = tonumber(new_val)
                 elseif new_val == "true" then
@@ -144,6 +150,7 @@ local function resolve_conf_var(conf)
             end
         end
     end
+    path[depth] = nil
 
     if renamed_keys then
         for key, new_key in pairs(renamed_keys) do
@@ -272,7 +279,7 @@ function _M.read_yaml_conf(apisix_home)
             return nil, "invalid config.yaml file"
         end
 
-        local ok, err = resolve_conf_var(user_conf)
+        local ok, err = resolve_conf_var(user_conf, schema.is_string_field)
         if not ok then
             return nil, err
         end
