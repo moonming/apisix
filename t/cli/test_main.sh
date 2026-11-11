@@ -477,6 +477,28 @@ fi
 
 echo "passed: keep variables as strings for string fields"
 
+# the keyring written as a single key, and a discovery schema with alternatives
+echo '
+apisix:
+    data_encryption:
+        keyring: ${{KEYRING}}
+discovery:
+    kubernetes:
+        service:
+            host: 127.0.0.1
+            port: ${{K8S_PORT}}
+        client:
+            token: ${{K8S_TOKEN}}
+' > conf/config.yaml
+
+if ! KEYRING=1234567890123456 K8S_PORT=6443 K8S_TOKEN=123456 make init > output.log 2>&1; then
+    cat output.log
+    echo "failed: numeric variables for string fields should stay strings"
+    exit 1
+fi
+
+echo "passed: keep variables as strings for a single keyring key and kubernetes discovery"
+
 echo '
 deployment:
     admin:
@@ -493,6 +515,23 @@ if ! echo "$out" | grep 'property "key" validation failed: wrong type: .*, got n
 fi
 
 echo "passed: reject an admin key written as a number"
+
+echo '
+deployment:
+    admin:
+        admin_key:
+            - name: admin
+              key: true
+              role: admin
+' > conf/config.yaml
+
+out=$(make init 2>&1 || true)
+if ! echo "$out" | grep 'property "key" validation failed: wrong type: .*, got boolean' > /dev/null; then
+    echo "failed: should reject an admin key written as a boolean"
+    exit 1
+fi
+
+echo "passed: reject an admin key written as a boolean"
 
 # a key left empty, as a template renders for an unused viewer key, is still valid
 echo '

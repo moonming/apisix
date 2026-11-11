@@ -381,10 +381,11 @@ local config_schema = {
     required = {"apisix", "deployment"},
 }
 
--- a field left empty in YAML, such as `key:`, is loaded as lyaml.null, an
--- empty table. Such a key matches no request, but it has always been accepted
--- (a template that leaves the viewer key empty renders it), so it stays valid.
-local admin_key_field_schema = {
+-- an admin key is compared with the request header as a string. A key left
+-- empty in YAML (`key:`) is loaded as lyaml.null, an empty table: it matches
+-- no request, but it has always been accepted (a template that leaves the
+-- viewer key empty renders it), so it stays valid.
+local admin_api_key_schema = {
     type = {"string", "object"},
     maxProperties = 0,
 }
@@ -396,9 +397,9 @@ local admin_schema = {
             type = "array",
             items = {
                 properties = {
-                    name = admin_key_field_schema,
-                    key = admin_key_field_schema,
-                    role = admin_key_field_schema,
+                    -- only the key is checked: it is the field compared with
+                    -- the request, and other fields have never been checked
+                    key = admin_api_key_schema,
                 }
             }
         },
@@ -486,17 +487,24 @@ local function child_schema(node, key)
         return child
     end
 
-    -- e.g. apisix.data_encryption.keyring, which is either a list or one key
+    -- e.g. apisix.data_encryption.keyring, which is either a list or one key.
+    -- When several alternatives describe the key, all of them apply.
+    local children
     for _, keyword in ipairs(alternative_keywords) do
         for _, alternative in ipairs(node[keyword] or {}) do
             child = child_schema(alternative, key)
             if child then
-                return child
+                children = children or {}
+                children[#children + 1] = child
             end
         end
     end
 
-    return nil
+    if children and #children > 1 then
+        return {anyOf = children}
+    end
+
+    return children and children[1]
 end
 
 

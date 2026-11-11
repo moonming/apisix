@@ -65,7 +65,7 @@ You should set these variables with `export`. If you do not export, APISIX will 
 
 Now when you start APISIX, it will listen on port `8132` and expose the Admin API on port `9232`.
 
-As with these ports, a value that looks like a number, or is `true` or `false`, is converted to a number or a boolean. A field that only accepts a string, such as `deployment.admin.admin_key[].key` or `deployment.etcd.password`, keeps the value as a string, so an Admin API key such as `123456` works as expected.
+As with these ports, a value that looks like a number, or is `true` or `false`, is converted to a number or a boolean, even if `${{VAR}}` is quoted. A field that the schema of `config.yaml` declares as a string keeps the value as a string, such as `deployment.admin.admin_key[].key`, `deployment.etcd.password`, `apisix.data_encryption.keyring`, or a string field of a built-in `discovery` section. An Admin API key such as `123456` therefore works as expected. Values in sections that the schema does not describe, such as `plugin_attr`, are still converted.
 
 To use default values if no environment variables are set, you can add it to your configuration file as shown below:
 

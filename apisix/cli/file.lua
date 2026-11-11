@@ -109,7 +109,24 @@ local function resolve_conf_var(conf, is_string_field, path)
     local depth = #path + 1
     local renamed_keys
     for key, val in pairs(conf) do
-        path[depth] = key
+        -- substitute environment variables from conf keys first, so that the
+        -- schema is looked up with the real key. The rename is deferred
+        -- because inserting a new key while iterating with pairs() is
+        -- undefined behavior.
+        local new_key = key
+        if type(key) == "string" then
+            local substituted, _, err = var_sub(key)
+            if err then
+                return nil, err
+            end
+            if substituted ~= key then
+                new_key = substituted
+                renamed_keys = renamed_keys or {}
+                renamed_keys[key] = new_key
+            end
+        end
+
+        path[depth] = new_key
         if type(val) == "table" then
             local ok, err = resolve_conf_var(val, is_string_field, path)
             if not ok then
@@ -134,20 +151,6 @@ local function resolve_conf_var(conf, is_string_field, path)
             end
 
             conf[key] = new_val
-        end
-
-        -- substitute environment variables from conf keys. The rename is
-        -- deferred because inserting a new key while iterating with pairs()
-        -- is undefined behavior.
-        if type(key) == "string" then
-            local new_key, _, err = var_sub(key)
-            if err then
-                return nil, err
-            end
-            if new_key ~= key then
-                renamed_keys = renamed_keys or {}
-                renamed_keys[key] = new_key
-            end
         end
     end
     path[depth] = nil
