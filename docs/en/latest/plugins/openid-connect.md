@@ -94,8 +94,8 @@ The `openid-connect` Plugin supports the integration with [OpenID Connect (OIDC)
 | session.storage | string | False | cookie | ["cookie", "redis"] | Session storage method. |
 | session.revocation | string | False | | ["redis"] | Session revocation backend. Set to `redis` to enable revocation for cookie sessions. Requires `session.redis` and cannot be used when `session.storage` is `redis`. |
 | session.revocation_fail_mode | string | False | open | ["open", "closed"] | When the revocation store is unreachable, `open` treats the session as not revoked, while `closed` rejects session open and destroy operations. |
-| session.revocation_cache_ttl | integer | False | | | Worker-local TTL in seconds for successful revocation lookups. `0` disables. lua-resty-session defaults to `5`. |
-| session.revocation_error_cache_ttl | integer | False | | | Worker-local TTL in seconds for revocation store errors. `0` disables. lua-resty-session defaults to `5`. Forced to `0` when `revocation_cache_ttl` is `0`. |
+| session.revocation_cache_ttl | integer | False | 5 | | Worker-local TTL in seconds for successful revocation lookups. Each session configuration has its own cache. `0` disables both lookup and error caching. |
+| session.revocation_error_cache_ttl | integer | False | 5 | | Worker-local TTL in seconds for revocation store errors. `0` disables. Forced to `0` when `revocation_cache_ttl` is `0`. |
 | session.redis | object | False | | | Redis connection. Required when `storage` is `redis`, or when `revocation` is `redis`. |
 | session.redis.host | string | False | 127.0.0.1 | | Redis host. |
 | session.redis.port | integer | False | 6379 | | Redis port. |
@@ -381,7 +381,11 @@ Cookie sessions are stored by the client and cannot normally be invalidated indi
 }
 ```
 
-`revocation_fail_mode` defaults to `open`, which continues accepting sessions if the revocation store is unavailable. Use `closed` to reject session open and destroy operations instead. Opening a cookie session checks the revocation store, so each worker keeps a small cache of recent lookups to avoid one Redis call per request. `revocation_cache_ttl` is the worker-local TTL for successful lookups, and `revocation_error_cache_ttl` is the TTL for store errors. A logout takes effect immediately on the worker that handled it and on other workers once their cached entry expires, so `revocation_cache_ttl` is also the longest a revoked session can still be accepted elsewhere. Set `revocation_cache_ttl` to `0` to check Redis on every request; the error cache is then disabled as well. Omit `revocation` to leave cookie-session revocation disabled.
+`revocation_fail_mode` defaults to `open`, which continues accepting sessions if the revocation store is unavailable. If the revocation write fails during logout, this mode still clears the browser cookie without recording the revocation or retrying it later. A copied cookie can remain usable until its session timeout. Use `closed` when your deployment relies on revocation: store failures return HTTP 503 and preserve the cookie so the client can retry.
+
+APISIX caches revocation lookups separately for each session configuration in each worker. `revocation_cache_ttl` controls successful lookups, and `revocation_error_cache_ttl` controls store errors. A successful logout immediately updates the cache instance handling it. Other cache instances can continue accepting the same identifier until their cached lookup or error expires. Set `revocation_cache_ttl` to `0` to check Redis on every request; the error cache is then disabled as well.
+
+Revocation applies to the session identifier in the cookie presented at logout. Earlier cookies produced by session saves or refreshes carry different identifiers and are not automatically revoked; they can remain usable until their session timeout. The cache TTL does not bound their lifetime or compensate for a failed revocation write. Omit `revocation` to leave cookie-session revocation disabled.
 
 ### Authorization Code Flow with PAR and DPoP
 

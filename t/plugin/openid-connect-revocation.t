@@ -163,7 +163,8 @@ replayed=302
                         },
                     },
                     check = function(opts)
-                        assert(opts.revocation == "redis")
+                        assert(type(opts.revocation.get) == "function")
+                        assert(type(opts.revocation.set) == "function")
                         assert(opts.revocation_fail_mode == nil)
                         assert(opts.redis.host == "127.0.0.1")
                         assert(opts.redis.prefix == "oidc:session:")
@@ -178,7 +179,7 @@ replayed=302
                         revocation_fail_mode = "open",
                     },
                     check = function(opts)
-                        assert(opts.revocation == "redis")
+                        assert(type(opts.revocation.get) == "function")
                         assert(opts.revocation_fail_mode == "open")
                     end,
                 },
@@ -191,12 +192,12 @@ replayed=302
                         revocation_fail_mode = "closed",
                     },
                     check = function(opts)
-                        assert(opts.revocation == "redis")
+                        assert(type(opts.revocation.get) == "function")
                         assert(opts.revocation_fail_mode == "closed")
                     end,
                 },
                 {
-                    name = "forwards revocation cache ttls",
+                    name = "configures the isolated revocation cache",
                     session = {
                         secret = secret,
                         revocation = "redis",
@@ -206,8 +207,10 @@ replayed=302
                         revocation_error_cache_ttl = 1,
                     },
                     check = function(opts)
-                        assert(opts.revocation_cache_ttl == 5)
-                        assert(opts.revocation_error_cache_ttl == 1)
+                        assert(opts.revocation.ttl == 5)
+                        assert(opts.revocation.error_ttl == 1)
+                        assert(opts.revocation_cache_ttl == 0)
+                        assert(opts.revocation_error_cache_ttl == 0)
                     end,
                 },
                 {
@@ -247,7 +250,15 @@ replayed=302
                     session = case.session,
                 })
                 assert(ok, case.name .. ": " .. tostring(err))
-                case.check(plugin._build_session_opts(case.session))
+                local opts = plugin._build_session_opts(case.session)
+                case.check(opts)
+                if case.session.revocation then
+                    assert(case.session.revocation == "redis")
+                    assert(opts ~= case.session)
+                    assert(opts == plugin._build_session_opts(case.session))
+                    local copy = require("apisix.core").table.deepcopy(case.session)
+                    assert(opts == plugin._build_session_opts(copy))
+                end
             end
 
             ngx.say("done")
@@ -405,22 +416,20 @@ done
             local session = require("resty.session")
             local plugin = require("apisix.plugins.openid-connect")
 
-            local probe = package.loaded.revocation_probe or {gets = 0}
-            package.loaded.revocation_probe = probe
-
-            local conf = {
-                secret = "jwcE5v3pM9VhqLxmxFOH9uZaLo8u7KQK",
-                cookie_name = ngx.var.arg_name,
-                revocation = "redis",
-            }
-            if ngx.var.arg_ttl then
-                conf.revocation_cache_ttl = tonumber(ngx.var.arg_ttl)
+            -- Model the plugin's configuration lifetime across HTTP requests.
+            local configs = package.loaded.revocation_configs or {}
+            package.loaded.revocation_configs = configs
+            local name = ngx.var.arg_name
+            if not configs[name] then
+                configs[name] = {
+                    secret = "jwcE5v3pM9VhqLxmxFOH9uZaLo8u7KQK",
+                    cookie_name = name,
+                    revocation = "redis",
+                    revocation_cache_ttl = tonumber(ngx.var.arg_ttl),
+                    redis = {host = "127.0.0.1", prefix = "oidc:cache:counts:"},
+                }
             end
-            local opts = plugin._build_session_opts(conf)
-            opts.revocation = {
-                get = function() probe.gets = probe.gets + 1 end,
-                set = function() return true end,
-            }
+            local opts = plugin._build_session_opts(configs[name])
 
             if ngx.var.arg_action == "save" then
                 local s = session.new(opts)
@@ -438,7 +447,14 @@ done
     location /t {
         content_by_lua_block {
             local http = require("resty.http")
+            local redis = require("resty.redis")
             local base = "http://127.0.0.1:" .. ngx.var.server_port .. "/session?"
+            local red = redis:new()
+            assert(red:connect("127.0.0.1", 6379))
+            local function get_calls()
+                local info = assert(red:info("commandstats"))
+                return tonumber(info:match("cmdstat_get:calls=(%d+)")) or 0
+            end
 
             -- open one cookie session three times and count store lookups; each
             -- step is its own request, as the session reads its cookie from nginx
@@ -452,21 +468,20 @@ done
                 end
                 cookie = cookie:match("^[^;]+")
 
-                local probe = package.loaded.revocation_probe
-                probe.gets = 0
+                local before = get_calls()
                 for _ = 1, 3 do
                     res = assert(httpc:request_uri(base .. query .. "&action=open",
                                                    {headers = {Cookie = cookie}}))
                     assert(res.status == 200, res.body)
                 end
-                return probe.gets
+                return get_calls() - before
             end
 
-            -- ttl 0 goes first: lua-resty-session allocates its cache lazily, and
-            -- only a fresh worker shows whether a zero TTL still works without it
+            -- Keep the cache-disabled case first to exercise a fresh worker.
             ngx.say("ttl 0: ", lookups("cached_a", 0))
             ngx.say("default ttl: ", lookups("cached_b"))
             ngx.say("ttl 5: ", lookups("cached_c", 5))
+            red:close()
         }
     }
 --- response_body
@@ -487,20 +502,19 @@ ttl 5: 1
             local opts = build({secret = secret, revocation = "redis",
                                 revocation_cache_ttl = 0,
                                 revocation_error_cache_ttl = 5})
-            ngx.say("ttl 0: ", opts.revocation_cache_ttl, " ", opts.revocation_error_cache_ttl)
+            ngx.say("ttl 0: ", opts.revocation.ttl, " ", opts.revocation.error_ttl)
 
             opts = build({secret = secret, revocation = "redis",
                           revocation_cache_ttl = 3,
                           revocation_error_cache_ttl = 5})
-            ngx.say("ttl 3: ", opts.revocation_cache_ttl, " ", opts.revocation_error_cache_ttl)
+            ngx.say("ttl 3: ", opts.revocation.ttl, " ", opts.revocation.error_ttl)
 
             opts = build({secret = secret, revocation = "redis",
                           revocation_cache_ttl = 0})
-            ngx.say("ttl 0, error unset: ", tostring(opts.revocation_error_cache_ttl))
+            ngx.say("ttl 0, error unset: ", opts.revocation.error_ttl)
 
             opts = build({secret = secret, revocation = "redis"})
-            ngx.say("unset: ", tostring(opts.revocation_cache_ttl), " ",
-                    tostring(opts.revocation_error_cache_ttl))
+            ngx.say("unset: ", opts.revocation.ttl, " ", opts.revocation.error_ttl)
 
             opts = build({secret = secret, revocation_cache_ttl = 0})
             ngx.say("no revocation: ", tostring(opts.revocation_error_cache_ttl))
@@ -510,7 +524,7 @@ ttl 5: 1
 ttl 0: 0 0
 ttl 3: 3 5
 ttl 0, error unset: 0
-unset: nil nil
+unset: 5 5
 no revocation: nil
 --- error_log
 session.revocation_error_cache_ttl is ignored

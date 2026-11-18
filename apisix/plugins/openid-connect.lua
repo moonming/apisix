@@ -19,10 +19,13 @@ local core              = require("apisix.core")
 local secret            = require("apisix.secret")
 local ngx_re            = require("ngx.re")
 local openidc           = require("resty.openidc")
+local resty_session     = require("resty.session")
 local jwt               = require("resty.jwt")
 local jsonschema        = require('jsonschema')
 local pkey              = require("resty.openssl.pkey")
 local dump_jwk          = require("resty.openssl.auxiliary.jwk").dump_jwk
+local revocation       = require("apisix.plugins.openid-connect.revocation")
+local sha256           = require("resty.sha256")
 local string            = string
 local ngx               = ngx
 local ipairs            = ipairs
@@ -52,13 +55,26 @@ local UNHANDLED_REDIRECT_URI_ERR = "unhandled request to the redirect_uri"
 -- authorization callbacks
 local MAX_AUTH_FLOW_RESTARTS = 3
 
+-- Routing may produce distinct tables for the same configuration on different
+-- URIs. Share their runtime backend by content, including credentials and policy,
+-- without retaining those values in cache keys.
+local session_keys = setmetatable({}, {__mode = "k"})
+local session_options = core.lrucache.new({type = "plugin", count = 128})
 
--- Session config is passed as-is to resty.session.start(); the only
--- translation is the legacy session.cookie.lifetime alias from the
--- lua-resty-session 3.x schema, which is mapped to absolute_timeout
--- when the latter is unset. The revocation error cache needs the lookup cache:
--- the session library only allocates its cache when revocation_cache_ttl > 0,
--- so with the lookup cache off the error TTL is set to 0 as well.
+
+local function create_session_options(session_conf)
+    local opts = core.table.clone(session_conf)
+    opts.revocation = revocation.new(opts)
+    -- The backend owns caching; never layer the session library's global
+    -- cache over the configuration-isolated results.
+    opts.revocation_cache_ttl = 0
+    opts.revocation_error_cache_ttl = 0
+    return opts
+end
+
+
+-- Normalize legacy options on the shared configuration once, then keep the
+-- runtime revocation backend separate from the configuration sent to the API.
 local function build_session_opts(session_conf)
     if not session_conf then
         return nil
@@ -72,8 +88,8 @@ local function build_session_opts(session_conf)
     end
     if session_conf.revocation and session_conf.revocation_cache_ttl == 0 then
         local error_ttl = session_conf.revocation_error_cache_ttl
-        -- the error cache needs the lookup cache, so a non-zero error TTL, set
-        -- or defaulted by the library, cannot apply without it
+        -- Disabling the lookup cache means every request should reach Redis,
+        -- including retries after a store error.
         if error_ttl == nil or error_ttl > 0 then
             if error_ttl then
                 core.log.warn("session.revocation_error_cache_ttl is ignored when ",
@@ -82,7 +98,18 @@ local function build_session_opts(session_conf)
             session_conf.revocation_error_cache_ttl = 0
         end
     end
-    return session_conf
+    if session_conf.revocation ~= "redis" then
+        return session_conf
+    end
+
+    local key = session_keys[session_conf]
+    if not key then
+        local hash = sha256:new()
+        hash:update(core.json.canonical_encode(session_conf))
+        key = hash:final()
+        session_keys[session_conf] = key
+    end
+    return session_options(key, nil, create_session_options, session_conf)
 end
 
 
@@ -327,14 +354,14 @@ local schema = {
                     minimum = 0,
                     description =
                         "Worker-local TTL in seconds for successful revocation "
-                        .. "lookups. 0 disables. Default is 5 in lua-resty-session.",
+                        .. "lookups. 0 disables. Default is 5.",
                 },
                 revocation_error_cache_ttl = {
                     type = "integer",
                     minimum = 0,
                     description =
                         "Worker-local TTL in seconds for revocation store errors. "
-                        .. "0 disables. Default is 5 in lua-resty-session.",
+                        .. "0 disables. Default is 5.",
                 },
             },
             required = {"secret"},
@@ -1505,9 +1532,43 @@ local function authenticate(plugin_conf, ctx)
         -- provider's authorization endpoint to initiate the Relying Party flow.
         -- This code path also handles when the ID provider then redirects to
         -- the configured redirect URI after successful authentication.
+        local session_opts = build_session_opts(conf.session)
+        local session_open_err
+        if conf.session and conf.session.revocation == "redis" then
+            -- Match lua-resty-openidc's path handling, including its callback
+            -- precedence, before opening a logout session without refreshing it.
+            local request_path = path:match("(.-)%?") or path
+            request_path = request_path:match(".-//[^/]+(/.*)") or request_path
+            local redirect_path = conf.local_redirect_uri_path
+            if not redirect_path then
+                redirect_path = conf.redirect_uri:match("(.-)%?") or conf.redirect_uri
+                redirect_path = redirect_path:match(".-//[^/]+(/.*)") or redirect_path
+            end
+            if request_path == (conf.logout_path or "/logout")
+                and request_path ~= redirect_path then
+                -- start() may rotate the SID before logout. Open the presented
+                -- cookie instead so destroy() revokes the SID the client sent.
+                session, session_open_err = resty_session.open(session_opts)
+                session_opts = session
+                -- Like openidc_start_session, ignore missing/invalid cookies,
+                -- but preserve fail-closed store errors for the 503 below.
+                if session and not (session.revocation_fail_mode == "closed"
+                    and session_open_err
+                    and (core.string.find(session_open_err, "unable to check session revocation")
+                         or core.string.find(session_open_err, "unable to mark session revoked")))
+                then
+                    session_open_err = nil
+                end
+            end
+        end
+
         local target_url
-        response, err, target_url, session = openidc.authenticate(conf, nil, unauth_action,
-                                                          build_session_opts(conf.session))
+        if session_open_err then
+            err = session_open_err
+        else
+            response, err, target_url, session = openidc.authenticate(conf, nil, unauth_action,
+                                                                    session_opts)
+        end
 
         if err then
             if err == "unauthorized request" then

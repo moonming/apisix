@@ -336,6 +336,9 @@ install: runtime
 	$(ENV_INSTALL) -d $(ENV_INST_LUADIR)/apisix/plugins/opa
 	$(ENV_INSTALL) apisix/plugins/opa/*.lua $(ENV_INST_LUADIR)/apisix/plugins/opa/
 
+	$(ENV_INSTALL) -d $(ENV_INST_LUADIR)/apisix/plugins/openid-connect
+	$(ENV_INSTALL) apisix/plugins/openid-connect/*.lua $(ENV_INST_LUADIR)/apisix/plugins/openid-connect/
+
 	$(ENV_INSTALL) -d $(ENV_INST_LUADIR)/apisix/plugins/prometheus
 	$(ENV_INSTALL) apisix/plugins/prometheus/*.lua $(ENV_INST_LUADIR)/apisix/plugins/prometheus/
 

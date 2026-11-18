@@ -93,8 +93,8 @@ import TabItem from '@theme/TabItem';
 | session.storage | string | 否 | cookie | ["cookie", "redis"] | 会话存储方式。 |
 | session.revocation | string | 否 | | ["redis"] | 会话吊销后端。设置为 `redis` 可为 Cookie 会话启用吊销功能。必须配置 `session.redis`，且不能在 `session.storage` 为 `redis` 时使用。 |
 | session.revocation_fail_mode | string | 否 | open | ["open", "closed"] | 当吊销存储不可用时，`open` 将会话视为未吊销，`closed` 则拒绝打开和销毁会话。 |
-| session.revocation_cache_ttl | integer | 否 | | | 成功吊销查询的 worker 本地缓存 TTL（秒）。`0` 禁用。lua-resty-session 默认为 `5`。 |
-| session.revocation_error_cache_ttl | integer | 否 | | | 吊销存储错误的 worker 本地缓存 TTL（秒）。`0` 禁用。lua-resty-session 默认为 `5`。当 `revocation_cache_ttl` 为 `0` 时强制为 `0`。 |
+| session.revocation_cache_ttl | integer | 否 | 5 | | 成功吊销查询的 worker 本地缓存 TTL（秒）。每个会话配置使用独立缓存。`0` 同时禁用查询缓存和错误缓存。 |
+| session.revocation_error_cache_ttl | integer | 否 | 5 | | 吊销存储错误的 worker 本地缓存 TTL（秒）。`0` 禁用。当 `revocation_cache_ttl` 为 `0` 时强制为 `0`。 |
 | session.redis | object | 否 | | | Redis 连接配置。当 `storage` 为 `redis`，或 `revocation` 为 `redis` 时必填。 |
 | session.redis.host | string | 否 | 127.0.0.1 | | Redis 主机。 |
 | session.redis.port | integer | 否 | 6379 | | Redis 端口。 |
@@ -380,7 +380,11 @@ Cookie 会话存储在客户端，APISIX 通常无法单独将其失效。要启
 }
 ```
 
-`revocation_fail_mode` 默认为 `open`，即吊销存储不可用时继续接受会话。使用 `closed` 则会拒绝打开和销毁会话。打开 Cookie 会话时会查询吊销存储，因此每个 worker 会缓存最近的查询结果，避免每个请求都访问一次 Redis。`revocation_cache_ttl` 是成功查询的 worker 本地 TTL，`revocation_error_cache_ttl` 是存储错误的 TTL。登出在处理该请求的 worker 上立即生效，在其他 worker 上则在其缓存条目过期后生效，因此 `revocation_cache_ttl` 也是已吊销会话在其他 worker 上仍可能被接受的最长时间。将 `revocation_cache_ttl` 设为 `0` 则每个请求都查询 Redis，此时错误缓存也会被禁用。省略 `revocation` 即不启用 Cookie 会话吊销。
+`revocation_fail_mode` 默认为 `open`，即吊销存储不可用时继续接受会话。如果登出时写入吊销记录失败，此模式仍会清除浏览器 Cookie，但不会记录吊销或在稍后重试。已经复制的 Cookie 可能在会话超时前仍然有效。对于依赖会话吊销的部署，建议使用 `closed`：存储故障会返回 HTTP 503 并保留 Cookie，客户端可以稍后重试。
+
+APISIX 为每个 worker 中的每个会话配置分别缓存吊销查询。`revocation_cache_ttl` 控制成功查询的缓存时间，`revocation_error_cache_ttl` 控制存储错误的缓存时间。成功登出会立即更新处理该操作的本地缓存实例。其他缓存实例可能继续接受同一会话标识，直到其查询缓存或错误缓存过期。将 `revocation_cache_ttl` 设为 `0` 则每个请求都查询 Redis，此时错误缓存也会被禁用。
+
+吊销针对登出请求所携带 Cookie 中的会话标识。此前保存或刷新会话产生的旧 Cookie 带有不同标识，不会被自动吊销，在会话超时前可能仍然有效。缓存 TTL 不限制这些旧 Cookie 的有效期，也不能弥补吊销记录写入失败。省略 `revocation` 即不启用 Cookie 会话吊销。
 
 ### 使用 PAR 和 DPoP 的授权码流程
 
